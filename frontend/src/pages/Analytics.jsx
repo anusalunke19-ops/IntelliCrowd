@@ -45,15 +45,15 @@ function buildHeadcountTimeline(zones) {
 
 // ─── Summary Card ─────────────────────────────────────────────────────────
 
-function SummaryCard({ icon, label, value, subtext, color = 'text-white' }) {
+function SummaryCard({ icon, label, value, subtext, color = 'theme-text-primary' }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-3 mb-2">
         <span className="text-2xl">{icon}</span>
-        <div className="text-gray-400 text-xs font-mono uppercase tracking-wider">{label}</div>
+        <div className="theme-text-muted text-xs font-mono uppercase tracking-wider">{label}</div>
       </div>
       <div className={`text-3xl font-bold font-mono ${color}`}>{value}</div>
-      {subtext && <div className="text-gray-500 text-xs mt-1">{subtext}</div>}
+      {subtext && <div className="theme-text-muted text-xs mt-1">{subtext}</div>}
     </div>
   );
 }
@@ -131,8 +131,8 @@ function exportReport({ zones, alerts, incidents }) {
 const ChartTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-cs-bg border border-cs-border rounded-lg p-3 text-xs shadow-xl">
-      <div className="text-gray-400 mb-2 font-mono">{label}</div>
+    <div className="card rounded-lg p-3 text-xs shadow-xl">
+      <div className="theme-text-muted mb-2 font-mono">{label}</div>
       {payload.map((p, i) => (
         <div key={i} className="flex justify-between gap-4" style={{ color: p.color }}>
           <span>{p.name}</span>
@@ -163,12 +163,12 @@ export default function Analytics() {
   const top6Zones = zones.slice(0, 6);
 
   return (
-    <div className="min-h-screen bg-cs-bg p-6 space-y-6">
+    <div className="min-h-screen p-6 space-y-6" style={{ background: 'var(--bg)' }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-white text-2xl font-bold">Post-Event Analytics</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Sunburn Festival 2026 · Real-time session data</p>
+          <h1 className="theme-text-primary text-2xl font-bold">Post-Event Analytics</h1>
+          <p className="theme-text-muted text-sm mt-0.5">Sunburn Festival 2026 · Real-time session data</p>
         </div>
         <button
           onClick={() => exportReport({ zones, alerts, incidents })}
@@ -194,8 +194,8 @@ export default function Analytics() {
 
       {/* Bar chart — zone occupancy over event */}
       <div className="card p-5">
-        <h2 className="text-white font-semibold mb-1">Zone Occupancy Over Event Timeline</h2>
-        <p className="text-gray-500 text-xs mb-4">Peak occupancy % per zone across event hours (top 6 zones)</p>
+        <h2 className="theme-text-primary font-semibold mb-1">Zone Occupancy Over Event Timeline</h2>
+        <p className="theme-text-muted text-xs mb-4">Peak occupancy % per zone across event hours (top 6 zones)</p>
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={chartData} barCategoryGap="20%" barGap={2}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1E1E2E" vertical={false}/>
@@ -214,8 +214,8 @@ export default function Analytics() {
 
       {/* Line chart — total headcount */}
       <div className="card p-5">
-        <h2 className="text-white font-semibold mb-1">Total Headcount Over Event</h2>
-        <p className="text-gray-500 text-xs mb-4">Aggregate people count across all monitored zones</p>
+        <h2 className="theme-text-primary font-semibold mb-1">Total Headcount Over Event</h2>
+        <p className="theme-text-muted text-xs mb-4">Aggregate people count across all monitored zones</p>
         <ResponsiveContainer width="100%" height={220}>
           <LineChart data={headcountData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1E1E2E" vertical={false}/>
@@ -239,14 +239,14 @@ export default function Analytics() {
 
       {/* Alert breakdown table */}
       <div className="card p-5">
-        <h2 className="text-white font-semibold mb-4">Alert Breakdown</h2>
+        <h2 className="theme-text-primary font-semibold mb-4">Alert Breakdown</h2>
         {alerts.length === 0 ? (
-          <div className="text-gray-500 text-sm">No alerts recorded in this session.</div>
+          <div className="theme-text-muted text-sm">No alerts recorded in this session.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-gray-500 border-b border-cs-border">
+                <tr className="theme-text-muted border-b theme-border">
                   <th className="text-left py-2 font-mono">ID</th>
                   <th className="text-left py-2 font-mono">Type</th>
                   <th className="text-left py-2 font-mono">Zone</th>
@@ -257,17 +257,17 @@ export default function Analytics() {
               </thead>
               <tbody>
                 {alerts.slice(0, 20).map(a => (
-                  <tr key={a.id} className="border-b border-cs-border/30 hover:bg-white/2">
-                    <td className="py-2 font-mono text-gray-400">{a.id}</td>
-                    <td className="py-2 text-white">{a.type}</td>
+                  <tr key={a.id} className="border-b theme-border hover:opacity-80 transition-opacity">
+                    <td className="py-2 font-mono theme-text-muted">{a.id}</td>
+                    <td className="py-2 theme-text-primary">{a.type}</td>
                     <td className="py-2 text-cs-amber">{a.zoneLabel || a.zone}</td>
                     <td className="py-2">
                       <span className={`chip-${a.severity.toLowerCase()}`}>{a.severity}</span>
                     </td>
-                    <td className="py-2 font-mono text-gray-400">
+                    <td className="py-2 font-mono theme-text-muted">
                       {new Date(a.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </td>
-                    <td className="py-2 capitalize text-gray-300">{a.status}</td>
+                    <td className="py-2 capitalize theme-text-muted">{a.status}</td>
                   </tr>
                 ))}
               </tbody>

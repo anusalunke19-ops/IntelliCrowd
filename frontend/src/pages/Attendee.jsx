@@ -139,16 +139,16 @@ export default function Attendee() {
   const criticalAlerts = alerts.filter(a => a.severity === 'P1' && a.status === 'open').slice(0, 2);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
       <div className="max-w-md mx-auto px-4 py-6 space-y-4">
 
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-gray-900 text-xl font-bold">Safety Companion</h1>
-            <p className="text-gray-500 text-sm">Sunburn Festival 2026</p>
+            <h1 className="theme-text-primary text-xl font-bold">Safety Companion</h1>
+            <p className="theme-text-muted text-sm">Sunburn Festival 2026</p>
           </div>
-          <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center text-xl">👤</div>
+          <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl" style={{ background: 'var(--surface-2)' }}>👤</div>
         </div>
 
         {/* Critical broadcast alerts */}
@@ -171,15 +171,21 @@ export default function Attendee() {
             const z = zones.find(z => z.id === zid);
             const occ = z ? Math.round((z.currentCount / z.capacity) * 100) : 0;
             const dot = occ >= 85 ? 'bg-red-500' : occ >= 60 ? 'bg-amber-500' : 'bg-green-500';
+            const isActive = i === currentZoneIdx % DEMO_ZONE_SEQ.length;
             return (
               <button
                 key={zid}
                 onClick={() => setCurrentZoneIdx(i)}
-                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition-all ${
-                  i === currentZoneIdx % DEMO_ZONE_SEQ.length
-                    ? 'border-gray-900 bg-gray-900 text-white'
-                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-400'
-                }`}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition-all font-medium"
+                style={isActive ? {
+                  background: '#EF9F27',
+                  borderColor: '#EF9F27',
+                  color: '#0A0A0F',
+                } : {
+                  background: 'var(--surface)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--text-muted)',
+                }}
               >
                 <span className={`w-2 h-2 rounded-full ${dot}`}/>
                 {ZONE_NAME_MAP[zid]}
@@ -192,18 +198,18 @@ export default function Attendee() {
         <SOSButton onSOS={() => logAction('🆘 SOS triggered by attendee')} />
 
         {/* Exits */}
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h2 className="text-gray-900 font-semibold text-base">Nearest Exits</h2>
+        <div className="rounded-2xl border overflow-hidden card">
+          <div className="px-4 py-3 border-b theme-border">
+            <h2 className="theme-text-primary font-semibold text-base">Nearest Exits</h2>
           </div>
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
             {EXITS.map(exit => (
               <div key={exit.name} className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
                   <span className="text-xl">{exit.icon}</span>
                   <div>
-                    <div className="text-gray-900 font-medium text-sm">{exit.name}</div>
-                    <div className="text-gray-500 text-xs">{exit.distance} away</div>
+                    <div className="theme-text-primary font-medium text-sm">{exit.name}</div>
+                    <div className="theme-text-muted text-xs">{exit.distance} away</div>
                   </div>
                 </div>
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -219,18 +225,18 @@ export default function Attendee() {
         </div>
 
         {/* Medical posts */}
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h2 className="text-gray-900 font-semibold text-base">Medical Posts</h2>
+        <div className="rounded-2xl border overflow-hidden card">
+          <div className="px-4 py-3 border-b theme-border">
+            <h2 className="theme-text-primary font-semibold text-base">Medical Posts</h2>
           </div>
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
             {MEDICAL_POSTS.map(post => (
               <div key={post.name} className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
                   <span className="text-xl">🏥</span>
                   <div>
-                    <div className="text-gray-900 font-medium text-sm">{post.name}</div>
-                    <div className="text-gray-500 text-xs">{post.distance} away</div>
+                    <div className="theme-text-primary font-medium text-sm">{post.name}</div>
+                    <div className="theme-text-muted text-xs">{post.distance} away</div>
                   </div>
                 </div>
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -254,7 +260,7 @@ export default function Attendee() {
           </ul>
         </div>
 
-        <div className="text-center text-gray-400 text-xs pb-4">
+        <div className="theme-text-dim text-center text-xs pb-4">
           IntelliCrowd Safety System · Version 1.0
         </div>
       </div>

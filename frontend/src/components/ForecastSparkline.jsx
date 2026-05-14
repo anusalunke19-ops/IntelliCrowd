@@ -47,8 +47,8 @@ export default function ForecastSparkline({ zone }) {
     <div className="card p-3">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <div className="text-white text-xs font-semibold">{zone.label}</div>
-          <div className="text-gray-500 text-[10px] font-mono">30-min forecast</div>
+          <div className="theme-text-primary text-xs font-semibold">{zone.label}</div>
+          <div className="theme-text-muted text-[10px] font-mono">30-min forecast</div>
         </div>
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs" style={{ color }}>{zone.currentCount}/{zone.capacity}</span>

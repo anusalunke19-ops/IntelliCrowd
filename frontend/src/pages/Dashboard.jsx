@@ -1,9 +1,11 @@
 /**
  * Dashboard — Operator Command Center
  * Module A5: Full-screen dark command UI with all panels.
+ * Now supports uploaded footage + user-defined polygons.
  */
 import React, { useState, useEffect } from 'react';
 import { useCrowdData } from '../context/CrowdDataContext.jsx';
+import { useFootage } from '../context/FootageContext.jsx';
 import VenueMap from '../components/VenueMap.jsx';
 import AlertFeed from '../components/AlertFeed.jsx';
 import RiskPanel from '../components/RiskPanel.jsx';
@@ -59,10 +61,10 @@ function ConnectivityBar({ degraded, lastKnownAt, onSimulate, onResume }) {
     );
   }
   return (
-    <div className="flex items-center gap-3 px-4 py-1.5 bg-cs-surface border-b border-cs-border text-xs">
+    <div className="flex items-center gap-3 px-4 py-1.5 border-b text-xs theme-surface theme-border">
       <span className="w-2 h-2 rounded-full bg-cs-green flex-shrink-0"/>
-      <span className="text-gray-400">Live feed active</span>
-      <button onClick={onSimulate} className="ml-auto text-gray-500 border border-gray-700/50 px-3 py-0.5 rounded hover:bg-white/5 transition-colors">
+      <span className="theme-text-muted">Live feed active</span>
+      <button onClick={onSimulate} className="ml-auto theme-text-dim border px-3 py-0.5 rounded hover:bg-white/5 transition-colors theme-border">
         Simulate Network Loss
       </button>
     </div>
@@ -86,7 +88,7 @@ function QuickActions({ onAction, auditLog }) {
           <button
             key={qa.label}
             onClick={() => onAction(qa.msg)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-cs-surface border border-cs-border text-xs font-semibold text-gray-300 hover:bg-white/5 hover:text-white transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold theme-text-muted card-sm hover:opacity-80 transition-all"
           >
             <span>{qa.icon}</span>
             <span>{qa.label}</span>
@@ -94,15 +96,15 @@ function QuickActions({ onAction, auditLog }) {
         ))}
       </div>
       {/* Audit trail */}
-      <div className="bg-black/30 rounded border border-cs-border p-2 max-h-24 overflow-y-auto">
-        <div className="text-gray-600 text-[10px] font-mono uppercase tracking-wider mb-1">Audit Trail</div>
-        {auditLog.length === 0 && <div className="text-gray-600 text-[10px]">No actions recorded</div>}
+      <div className="rounded border theme-border p-2 max-h-24 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.15)' }}>
+        <div className="theme-text-dim text-[10px] font-mono uppercase tracking-wider mb-1">Audit Trail</div>
+        {auditLog.length === 0 && <div className="theme-text-dim text-[10px]">No actions recorded</div>}
         {auditLog.slice(0, 8).map((entry, i) => (
           <div key={i} className="flex gap-2 text-[10px] font-mono leading-relaxed">
-            <span className="text-gray-600 shrink-0">
+            <span className="theme-text-dim shrink-0">
               {new Date(entry.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
-            <span className="text-gray-400">{entry.message}</span>
+            <span className="theme-text-muted">{entry.message}</span>
           </div>
         ))}
       </div>
@@ -123,11 +125,17 @@ export default function Dashboard() {
     simulateNetworkLoss, resumeFeed, logAction,
   } = useCrowdData();
 
+  const { footage } = useFootage();
+
   const [rightTab, setRightTab] = useState('Alerts');
   const openAlerts = alerts.filter(a => a.status === 'open');
 
+  // Event title / venue — from uploaded footage if present, else default
+  const eventName  = footage?.name  || 'SUNBURN FESTIVAL 2026';
+  const venueLine  = [footage?.venue, footage?.city].filter(Boolean).join(' · ') || 'Main Venue · Goa, India';
+
   return (
-    <div className="flex flex-col h-[calc(100vh-48px)] bg-cs-bg overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-48px)] overflow-hidden" style={{ background: 'var(--bg)' }}>
 
       {/* Connectivity bar */}
       <ConnectivityBar
@@ -138,27 +146,27 @@ export default function Dashboard() {
       />
 
       {/* Top bar */}
-      <header className="flex items-center justify-between px-4 py-2 bg-cs-surface border-b border-cs-border shrink-0">
+      <header className="flex items-center justify-between px-4 py-2 border-b shrink-0 card-sm" style={{ borderRadius: 0 }}>
         <div>
-          <h1 className="text-white font-bold text-sm tracking-wide">SUNBURN FESTIVAL 2026</h1>
-          <div className="text-gray-500 text-[10px] font-mono">Main Venue · Goa, India</div>
+          <h1 className="theme-text-primary font-bold text-sm tracking-wide">{eventName}</h1>
+          <div className="theme-text-dim text-[10px] font-mono">{venueLine}</div>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <span className="text-gray-500 text-xs">Incidents</span>
+            <span className="theme-text-muted text-xs">Incidents</span>
             <span className={`font-mono font-bold text-sm px-2 py-0.5 rounded ${
               incidents.filter(i => i.status !== 'Resolved').length > 0
                 ? 'bg-cs-red/20 text-cs-red'
-                : 'bg-white/10 text-gray-300'
+                : 'bg-white/10 theme-text-muted'
             }`}>
               {incidents.filter(i => i.status !== 'Resolved').length}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-gray-500 text-xs">Alerts</span>
+            <span className="theme-text-muted text-xs">Alerts</span>
             <span className={`font-mono font-bold text-sm px-2 py-0.5 rounded ${
-              openAlerts.length > 0 ? 'bg-cs-red/20 text-cs-red animate-pulse' : 'bg-white/10 text-gray-300'
+              openAlerts.length > 0 ? 'bg-cs-red/20 text-cs-red animate-pulse' : 'bg-white/10 theme-text-muted'
             }`}>
               {openAlerts.length}
             </span>
@@ -172,9 +180,9 @@ export default function Dashboard() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Left — Zone list */}
-        <aside className="w-52 bg-cs-surface border-r border-cs-border flex flex-col shrink-0">
-          <div className="px-3 py-2 border-b border-cs-border">
-            <div className="text-gray-400 text-[10px] font-mono uppercase tracking-wider">Zones</div>
+        <aside className="w-52 border-r flex flex-col shrink-0 theme-surface theme-border">
+          <div className="px-3 py-2 border-b theme-border">
+            <div className="theme-text-dim text-[10px] font-mono uppercase tracking-wider">Zones</div>
           </div>
           <div className="flex-1 overflow-hidden p-2">
             <ZoneList zones={zones} />
@@ -194,9 +202,9 @@ export default function Dashboard() {
         </main>
 
         {/* Right — Tabbed panel */}
-        <aside className="w-72 bg-cs-surface border-l border-cs-border flex flex-col shrink-0">
+        <aside className="w-72 border-l flex flex-col shrink-0 theme-surface theme-border">
           {/* Tabs */}
-          <div className="flex border-b border-cs-border shrink-0">
+          <div className="flex border-b theme-border shrink-0">
             {TABS.map(tab => (
               <button
                 key={tab}
@@ -204,7 +212,7 @@ export default function Dashboard() {
                 className={`flex-1 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
                   rightTab === tab
                     ? 'text-cs-amber border-b-2 border-cs-amber bg-cs-amber/5'
-                    : 'text-gray-500 hover:text-gray-300'
+                    : 'theme-text-dim hover:theme-text-muted'
                 }`}
               >
                 {tab}
@@ -231,7 +239,7 @@ export default function Dashboard() {
       </div>
 
       {/* Bottom — Quick actions + audit trail */}
-      <footer className="bg-cs-surface border-t border-cs-border px-4 py-2 shrink-0">
+      <footer className="border-t px-4 py-2 shrink-0 card-sm" style={{ borderRadius: 0 }}>
         <QuickActions onAction={logAction} auditLog={eventLog} />
       </footer>
     </div>

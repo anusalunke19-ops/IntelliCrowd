@@ -2,47 +2,174 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  *, *::before, *::after { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body {
-    margin: 0;
-    font-family: 'Inter', system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    background: #0A0A0F;
-    color: #fff;
-  }
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
-  ::-webkit-scrollbar-track { background: #12121A; }
-  ::-webkit-scrollbar-thumb { background: #2A2A3A; border-radius: 2px; }
-  ::-webkit-scrollbar-thumb:hover { background: #3A3A4A; }
+/* ─── Google Fonts ─────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ─── CSS Variables (Dark Mode — default) ───────────────────────────────────── */
+:root,
+html.dark {
+  --bg:          #0A0A0F;
+  --surface:     #12121A;
+  --surface-2:   #1A1A26;
+  --border:      #1E1E2E;
+  --border-2:    #2A2A3A;
+  --text-primary: #F0F0F8;
+  --text-muted:   #6B7280;
+  --text-dim:     #4B5563;
+
+  --emboss-inset: inset 0 1px 1px rgba(255,255,255,0.06), 0 3px 10px rgba(0,0,0,0.45);
+  --emboss-inset-sm: inset 0 1px 1px rgba(255,255,255,0.05), 0 1.5px 5px rgba(0,0,0,0.35);
+
+  color-scheme: dark;
 }
 
+/* ─── Light Mode ─────────────────────────────────────────────────────────────── */
+html.light {
+  --bg:           #F1F2F6;
+  --surface:      #FFFFFF;
+  --surface-2:    #F7F8FC;
+  --border:       #E2E5EE;
+  --border-2:     #C8CEDD;
+  --text-primary:  #0F1117;
+  --text-muted:    #6B7280;
+  --text-dim:      #9CA3AF;
+
+  --emboss-inset: inset 0 1.5px 2px rgba(255,255,255,0.95), 0 2px 8px rgba(0,0,0,0.10), 0 1px 2px rgba(0,0,0,0.07);
+  --emboss-inset-sm: inset 0 1px 1.5px rgba(255,255,255,0.9), 0 1px 4px rgba(0,0,0,0.08);
+
+  color-scheme: light;
+}
+
+/* ─── Base ────────────────────────────────────────────────────────────────────── */
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    font-family: 'Montserrat', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: var(--bg);
+    color: var(--text-primary);
+    transition: background 0.25s ease, color 0.25s ease;
+  }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+}
+
+/* ─── Theme Utility Classes ───────────────────────────────────────────────────── */
+@layer utilities {
+  .theme-bg         { background: var(--bg) !important; }
+  .theme-surface    { background: var(--surface) !important; }
+  .theme-surface-2  { background: var(--surface-2) !important; }
+  .theme-border     { border-color: var(--border) !important; }
+  .theme-text-primary { color: var(--text-primary) !important; }
+  .theme-text-muted   { color: var(--text-muted) !important; }
+  .theme-text-dim     { color: var(--text-dim) !important; }
+
+  .theme-input {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .theme-input::placeholder { color: var(--text-dim); }
+  .theme-input:focus {
+    border-color: #EF9F27;
+    box-shadow: 0 0 0 3px rgba(239,159,39,0.15);
+  }
+}
+
+/* ─── Components ──────────────────────────────────────────────────────────────── */
 @layer components {
   .mono { font-family: 'JetBrains Mono', monospace; }
 
-  /* Severity chips */
+  /* ── Cards with embossed feel ──────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    box-shadow: var(--emboss-inset);
+    transition: box-shadow 0.2s, background 0.25s;
+  }
+  .card:hover {
+    box-shadow: var(--emboss-inset), 0 0 0 1px var(--border-2);
+  }
+
+  .card-sm {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    box-shadow: var(--emboss-inset-sm);
+    transition: box-shadow 0.2s, background 0.25s;
+  }
+
+  /* ── Severity chips ────────────────────────────────────────────────────────── */
   .chip-p1 { @apply bg-cs-red/20 text-cs-red border border-cs-red/40 px-2 py-0.5 rounded text-xs font-mono font-semibold tracking-wider; }
   .chip-p2 { @apply bg-cs-amber/20 text-cs-amber border border-cs-amber/40 px-2 py-0.5 rounded text-xs font-mono font-semibold tracking-wider; }
   .chip-p3 { @apply bg-cs-blue/20 text-cs-blue border border-cs-blue/40 px-2 py-0.5 rounded text-xs font-mono font-semibold tracking-wider; }
 
-  /* Risk pills */
+  /* ── Risk pills ────────────────────────────────────────────────────────────── */
   .pill-safe     { @apply bg-cs-green/20 text-cs-green border border-cs-green/40 px-2 py-0.5 rounded-full text-xs font-semibold; }
   .pill-warning  { @apply bg-cs-amber/20 text-cs-amber border border-cs-amber/40 px-2 py-0.5 rounded-full text-xs font-semibold; }
   .pill-critical { @apply bg-cs-red/20 text-cs-red border border-cs-red/40 px-2 py-0.5 rounded-full text-xs font-semibold; }
 
-  /* Cards */
-  .card { @apply bg-cs-surface border border-cs-border rounded-lg; }
-  .card-sm { @apply bg-cs-surface border border-cs-border rounded; }
-
-  /* Buttons */
-  .btn-primary { @apply bg-cs-amber text-cs-bg font-semibold px-4 py-2 rounded hover:bg-amber-400 transition-colors text-sm; }
-  .btn-ghost   { @apply border border-cs-border text-gray-300 px-3 py-1.5 rounded hover:bg-white/5 transition-colors text-sm; }
+  /* ── Buttons ───────────────────────────────────────────────────────────────── */
+  .btn-primary {
+    @apply bg-cs-amber text-cs-bg font-semibold px-4 py-2 rounded hover:bg-amber-400 transition-colors text-sm;
+    box-shadow: 0 2px 8px rgba(239,159,39,0.25), inset 0 1px 0 rgba(255,255,255,0.2);
+  }
+  .btn-ghost {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    box-shadow: var(--emboss-inset-sm);
+    @apply px-3 py-1.5 rounded hover:opacity-80 transition-all text-sm;
+  }
   .btn-danger  { @apply bg-cs-red/20 text-cs-red border border-cs-red/40 px-3 py-1.5 rounded hover:bg-cs-red/30 transition-colors text-sm font-semibold; }
 
-  /* Glow effects */
+  /* ── Glow effects ──────────────────────────────────────────────────────────── */
   .glow-amber { box-shadow: 0 0 20px rgba(239,159,39,0.15); }
   .glow-red   { box-shadow: 0 0 20px rgba(226,75,74,0.20); }
   .glow-green { box-shadow: 0 0 20px rgba(29,158,117,0.15); }
 }
+
+/* ─── Light mode component overrides ─────────────────────────────────────────── */
+
+/* Navbar */
+html.light nav.intellicrowd-nav {
+  background: rgba(255,255,255,0.96) !important;
+  border-bottom-color: var(--border) !important;
+}
+
+html.light nav.intellicrowd-nav .brand-text { color: #0F1117 !important; }
+html.light nav.intellicrowd-nav .nav-link-inactive { color: #6B7280 !important; }
+html.light nav.intellicrowd-nav .nav-link-inactive:hover { color: #0F1117 !important; background: rgba(0,0,0,0.04) !important; }
+html.light nav.intellicrowd-nav .nav-link-active { background: #EF9F27 !important; color: #0F1117 !important; }
+
+/* Dashboard bars / surfaces */
+html.light .bg-cs-bg { background: var(--bg) !important; }
+html.light .bg-cs-surface { background: var(--surface) !important; }
+html.light .border-cs-border { border-color: var(--border) !important; }
+html.light .text-gray-400 { color: #6B7280 !important; }
+html.light .text-gray-500 { color: #9CA3AF !important; }
+html.light .text-gray-600 { color: #6B7280 !important; }
+html.light .text-white    { color: var(--text-primary) !important; }
+html.light .text-gray-300 { color: #374151 !important; }
+
+/* Light audit trail / dark-bg panels */
+html.light .bg-black\/30 { background: rgba(0,0,0,0.04) !important; }
+html.light .bg-\[#0D0D18\] { background: #E8ECF5 !important; }
+html.light .stroke-\[\#1a1a2a\] { stroke: #CBD5E1 !important; }
+
+/* Charts */
+html.light .recharts-cartesian-grid line { stroke: #E5E7EB !important; }
+
+/* Transition for all theme-sensitive elements */
+* { transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease; }
