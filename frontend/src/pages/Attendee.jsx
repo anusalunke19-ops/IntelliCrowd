@@ -2,7 +2,7 @@
  * Attendee — Mobile-first safety companion panel.
  * Horizontal grid layout. Zone metrics pulled from user-defined zones (FootageContext).
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useCrowdData } from '../context/CrowdDataContext.jsx';
 import { useFootage } from '../context/FootageContext.jsx';
 
@@ -223,38 +223,46 @@ function SOSButton({ onSOS, zone, contact, incidents, activeIncidentId, setActiv
         navigator.vibrate([500, 200, 500, 200]);
       }, 1500);
     }
+
+    // Dial emergency number if contact is provided
+    if (contact) {
+      const numbers = contact.replace(/[^0-9+]/g, '');
+      if (numbers) {
+        window.location.href = `tel:${numbers}`;
+      }
+    }
   };
 
   if (sent) return (
-    <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-5 text-center">
+    <div className="card border-2 border-red-500/40 rounded-2xl p-5 text-center">
       <div className="text-4xl mb-2">🆘</div>
-      <div className="text-red-700 font-bold text-lg mb-4">SOS Sent! Security Notified.</div>
+      <div className="text-red-500 font-bold text-lg mb-4">SOS Sent! Security Notified.</div>
       
       {/* Mini map container */}
-      <div className="bg-gray-100 rounded-xl p-3 mb-4 h-32 flex flex-col items-center justify-center border border-gray-200">
+      <div className="rounded-xl p-3 mb-4 h-32 flex flex-col items-center justify-center border theme-border" style={{ background: 'var(--surface-2)' }}>
          <div className="text-2xl mb-1">📍</div>
-         <div className="text-gray-700 font-semibold text-sm">Location Shared:</div>
-         <div className="text-gray-500 text-xs">{zone?.label || 'Current Location'}</div>
+         <div className="theme-text-primary font-semibold text-sm">Location Shared:</div>
+         <div className="theme-text-muted text-xs">{zone?.label || 'Current Location'}</div>
       </div>
       
-      <div className="bg-white rounded-xl p-3 text-left border border-red-100 mb-4">
-        <div className="text-gray-500 text-xs mb-1">Emergency Contact Notified:</div>
-        <div className="font-bold text-gray-800">{contact || 'None saved'}</div>
+      <div className="rounded-xl p-3 text-left border border-red-500/20 mb-4" style={{ background: 'var(--surface)' }}>
+        <div className="theme-text-muted text-xs mb-1">Emergency Contact Notified:</div>
+        <div className="font-bold theme-text-primary">{contact || 'None saved'}</div>
       </div>
 
-      <button onClick={() => { stopAlarm(); setSent(false); setActiveIncidentId(null); }} className="w-full py-2 rounded-lg bg-gray-200 text-gray-700 font-semibold text-sm">Dismiss</button>
+      <button onClick={() => { stopAlarm(); setSent(false); setActiveIncidentId(null); }} className="w-full py-2 rounded-[20px] theme-text-primary font-semibold text-sm" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>Dismiss</button>
     </div>
   );
 
   if (confirm) return (
-    <div className="bg-red-50 border-2 border-red-400 rounded-2xl p-5">
+    <div className="bg-red-500/10 border-2 border-red-500/30 rounded-2xl p-5">
       <div className="text-center mb-4">
-        <div className="text-red-700 font-bold text-base">Confirm SOS Request?</div>
-        <div className="text-gray-500 text-sm mt-1">This will alert security immediately.</div>
+        <div className="text-red-500 font-bold text-base">Confirm SOS Request?</div>
+        <div className="theme-text-muted text-sm mt-1">This will alert security immediately.</div>
       </div>
       <div className="flex gap-3">
-        <button onClick={() => setConfirm(false)} className="flex-1 py-3 rounded-xl border-2 border-gray-300 text-gray-600 font-semibold">Cancel</button>
-        <button onClick={handleSOS} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold text-lg">Send SOS</button>
+        <button onClick={() => setConfirm(false)} className="flex-1 py-3 rounded-xl border-2 theme-border theme-text-primary font-semibold hover:bg-white/5">Cancel</button>
+        <button onClick={handleSOS} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold text-lg hover:bg-red-700">Send SOS</button>
       </div>
     </div>
   );
@@ -262,10 +270,11 @@ function SOSButton({ onSOS, zone, contact, incidents, activeIncidentId, setActiv
   return (
     <button
       onClick={() => setConfirm(true)}
-      className="w-full py-5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xl rounded-2xl flex items-center justify-center gap-3 transition-all shadow-lg shadow-red-200"
+      className="w-full py-5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xl rounded-[24px] flex items-center justify-center gap-3 transition-all"
+      style={{ boxShadow: '0 2px 8px rgba(226,75,74,0.25), inset 0 1px 0 rgba(255,255,255,0.15)' }}
     >
       <span className="text-3xl">🆘</span>
-      Emergency SOS
+      <span className="text-white font-bold">Emergency SOS</span>
     </button>
   );
 }
@@ -305,6 +314,19 @@ export default function Attendee() {
   const selectedZone = displayZones[selectedIdx] || displayZones[0];
   const criticalAlerts = alerts.filter(a => a.severity === 'P1' && a.status === 'open').slice(0, 2);
 
+  // Build a zone label map from userZones for alert display
+  const zoneLabelMap = useMemo(() => {
+    const map = {};
+    userZones.forEach(z => { map[z.id] = z.label; });
+    return map;
+  }, [userZones]);
+
+  const resolveAlertZone = (a) => {
+    if (a.zone_id && zoneLabelMap[a.zone_id]) return zoneLabelMap[a.zone_id];
+    if (a.zone && zoneLabelMap[a.zone]) return zoneLabelMap[a.zone];
+    return a.zoneLabel || a.zone || a.zone_id || 'Unknown Zone';
+  };
+
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
@@ -326,7 +348,7 @@ export default function Attendee() {
           <div key={a.id} className="bg-red-500/10 border border-red-400/40 rounded-xl p-3 flex gap-3">
             <span className="text-xl shrink-0">🔔</span>
             <div>
-              <div className="text-red-400 font-semibold text-sm">Safety Alert — {a.zone_id}</div>
+              <div className="text-red-400 font-semibold text-sm">Safety Alert — {resolveAlertZone(a)}</div>
               <div className="text-red-400/80 text-xs mt-0.5">{a.message}</div>
             </div>
           </div>
@@ -334,7 +356,7 @@ export default function Attendee() {
 
         {/* Zone tiles — horizontal grid */}
         {displayZones.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {displayZones.map((zone, i) => (
               <ZoneTile
                 key={zone.id}
@@ -414,7 +436,7 @@ export default function Attendee() {
         />
 
         {/* Exits & Medical — horizontal two-column layout */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="rounded-2xl border overflow-hidden card">
             <div className="px-4 py-3 border-b theme-border">
               <h2 className="theme-text-primary font-semibold text-sm">🚪 Nearest Exits</h2>
@@ -460,8 +482,8 @@ export default function Attendee() {
 
         {/* Safety tips */}
         <div className="bg-blue-500/10 border border-blue-400/30 rounded-2xl p-4">
-          <h3 className="text-blue-400 font-semibold text-sm mb-2">💡 Safety Tips</h3>
-          <ul className="text-blue-300/80 text-xs space-y-1">
+          <h3 className="text-blue-500 font-semibold text-sm mb-2">💡 Safety Tips</h3>
+          <ul className="theme-text-primary text-xs space-y-1">
             <li>• Stay with your group and agree on a meeting point</li>
             <li>• If you feel pushed, keep arms out to protect space</li>
             <li>• Move with the crowd — never against it</li>

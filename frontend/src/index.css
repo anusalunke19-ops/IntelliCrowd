@@ -8,17 +8,17 @@
 /* ─── CSS Variables (Dark Mode — default) ───────────────────────────────────── */
 :root,
 html.dark {
-  --bg:          #0A0A0F;
-  --surface:     #12121A;
-  --surface-2:   #1A1A26;
-  --border:      #1E1E2E;
-  --border-2:    #2A2A3A;
+  --bg:          #13131C;
+  --surface:     #1A1A26;
+  --surface-2:   #22222F;
+  --border:      #2A2A3C;
+  --border-2:    #363650;
   --text-primary: #F0F0F8;
   --text-muted:   #6B7280;
   --text-dim:     #4B5563;
 
-  --emboss-inset: inset 0 1px 1px rgba(255,255,255,0.06), 0 3px 10px rgba(0,0,0,0.45);
-  --emboss-inset-sm: inset 0 1px 1px rgba(255,255,255,0.05), 0 1.5px 5px rgba(0,0,0,0.35);
+  --emboss-inset: inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.28);
+  --emboss-inset-sm: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 3px rgba(0,0,0,0.2);
 
   color-scheme: dark;
 }
@@ -92,21 +92,25 @@ html.light {
 
   /* ── Cards with embossed feel ──────────────────────────────────────────────── */
   .card {
-    background: var(--surface);
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
     border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    box-shadow: var(--emboss-inset);
-    transition: box-shadow 0.2s, background 0.25s;
+    border-radius: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255,255,255,0.06);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    transition: box-shadow 0.2s, background 0.25s, transform 0.2s;
   }
   .card:hover {
-    box-shadow: var(--emboss-inset), 0 0 0 1px var(--border-2);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255,255,255,0.09);
   }
 
   .card-sm {
-    background: var(--surface);
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
     border: 1px solid var(--border);
-    border-radius: 0.25rem;
-    box-shadow: var(--emboss-inset-sm);
+    border-radius: 20px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255,255,255,0.05);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     transition: box-shadow 0.2s, background 0.25s;
   }
 
@@ -122,17 +126,21 @@ html.light {
 
   /* ── Buttons ───────────────────────────────────────────────────────────────── */
   .btn-primary {
-    @apply bg-cs-amber text-cs-bg font-semibold px-4 py-2 rounded hover:bg-amber-400 transition-colors text-sm;
-    box-shadow: 0 2px 8px rgba(239,159,39,0.25), inset 0 1px 0 rgba(255,255,255,0.2);
+    @apply bg-cs-amber text-cs-bg font-semibold px-4 py-2 hover:bg-amber-400 transition-all text-sm;
+    border-radius: 24px;
+    box-shadow: 0 2px 8px rgba(239,159,39,0.2), inset 0 1px 0 rgba(255,255,255,0.18);
   }
   .btn-ghost {
-    background: var(--surface);
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
     border: 1px solid var(--border);
     color: var(--text-muted);
-    box-shadow: var(--emboss-inset-sm);
-    @apply px-3 py-1.5 rounded hover:opacity-80 transition-all text-sm;
+    border-radius: 24px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.05);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    @apply px-3 py-1.5 hover:opacity-80 transition-all text-sm;
   }
-  .btn-danger  { @apply bg-cs-red/20 text-cs-red border border-cs-red/40 px-3 py-1.5 rounded hover:bg-cs-red/30 transition-colors text-sm font-semibold; }
+  .btn-danger  { @apply bg-cs-red/20 text-cs-red border border-cs-red/40 px-3 py-1.5 rounded-[24px] hover:bg-cs-red/30 transition-colors text-sm font-semibold; }
 
   /* ── Glow effects ──────────────────────────────────────────────────────────── */
   .glow-amber { box-shadow: 0 0 20px rgba(239,159,39,0.15); }
@@ -144,14 +152,13 @@ html.light {
 
 /* Navbar */
 html.light nav.intellicrowd-nav {
-  background: rgba(255,255,255,0.96) !important;
-  border-bottom-color: var(--border) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+html.dark nav.intellicrowd-nav {
+  border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
-html.light nav.intellicrowd-nav .brand-text { color: #0F1117 !important; }
-html.light nav.intellicrowd-nav .nav-link-inactive { color: #6B7280 !important; }
-html.light nav.intellicrowd-nav .nav-link-inactive:hover { color: #0F1117 !important; background: rgba(0,0,0,0.04) !important; }
-html.light nav.intellicrowd-nav .nav-link-active { background: #EF9F27 !important; color: #0F1117 !important; }
+html.light nav.intellicrowd-nav .brand-text { color: #FFFFFF !important; }
 
 /* Dashboard bars / surfaces */
 html.light .bg-cs-bg { background: var(--bg) !important; }
@@ -172,4 +179,22 @@ html.light .stroke-\[\#1a1a2a\] { stroke: #CBD5E1 !important; }
 html.light .recharts-cartesian-grid line { stroke: #E5E7EB !important; }
 
 /* Transition for all theme-sensitive elements */
-* { transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease; }
+* { transition: background-color 0.22s ease, border-color 0.22s ease, color 0.18s ease; }
+
+/* ─── Page & Menu Animations ─────────────────────────────────────────────────── */
+@keyframes pageFadeSlide {
+  from { opacity: 0; transform: translateY(10px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in { animation: fadeIn 0.25s ease-out both; }

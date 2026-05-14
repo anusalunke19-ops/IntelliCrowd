@@ -77,11 +77,11 @@ function SVGMap({ zonesData = [], incidents = [] }) {
     );
 
   return (
-    <div className="relative w-full select-none">
+    <div className="relative w-full h-full flex flex-col select-none">
       <svg
         viewBox={`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`}
-        className="w-full h-auto rounded-lg border border-cs-border"
-        style={{ maxHeight: '420px', background: '#0D0D18' }}
+        className="w-full flex-1 rounded-[20px] border"
+        style={{ background: '#0D0D18', borderColor: 'var(--border)' }}
       >
         <defs>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -338,7 +338,7 @@ function VideoMap({ incidents = [] }) {
   const activeAlerts = alerts.filter(a => !dismissedAlerts.has(a.id));
 
   return (
-    <div className="relative w-full select-none">
+    <div className="relative w-full h-full flex flex-col select-none" style={{ background: '#0D0D18', borderRadius: '20px', overflow: 'hidden' }}>
       {/* Footage badge */}
       <div className="absolute top-2 left-2 z-20 flex items-center gap-2">
         <div
@@ -376,8 +376,8 @@ function VideoMap({ incidents = [] }) {
       {/* Canvas */}
       <canvas
         ref={canvasRef}
-        className="w-full block rounded-lg border border-cs-border"
-        style={{ background: '#0D0D18' }}
+        className="w-full block flex-1"
+        style={{ background: '#0D0D18', minHeight: 0 }}
       />
 
 

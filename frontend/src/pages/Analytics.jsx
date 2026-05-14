@@ -8,6 +8,7 @@ import {
   CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { useCrowdData } from '../context/CrowdDataContext.jsx';
+import { useFootage } from '../context/FootageContext.jsx';
 import ZoneDensityChart from '../components/ZoneDensityChart.jsx';
 
 // ─── Simulated event timeline data ───────────────────────────────────────
@@ -62,17 +63,23 @@ function SummaryCard({ icon, label, value, subtext, color = 'theme-text-primary'
 
 // ─── Export Report ────────────────────────────────────────────────────────
 
-function exportReport({ zones, alerts, incidents }) {
+function exportReport({ zones, alerts, incidents, footage }) {
   const p1 = alerts.filter(a => a.severity === 'P1').length;
   const p2 = alerts.filter(a => a.severity === 'P2').length;
   const totalPeople = zones.reduce((s, z) => s + z.currentCount, 0);
   const peakZone = [...zones].sort((a, b) => b.currentCount / b.capacity - a.currentCount / a.capacity)[0];
 
+  const eventName = footage?.name  || 'Not specified';
+  const venue     = footage?.venue || 'Not specified';
+  const city      = footage?.city  || 'Not specified';
+
   const lines = [
     '='.repeat(60),
     '       INTELLICROWD — POST-EVENT SAFETY REPORT',
     '='.repeat(60),
-    `Event:        Sunburn Festival 2026`,
+    `Event:        ${eventName}`,
+    `Venue:        ${venue}`,
+    `Location:     ${city}`,
     `Date:         ${new Date().toLocaleDateString()}`,
     `Generated:    ${new Date().toLocaleString()}`,
     `Platform:     IntelliCrowd v1.0`,
@@ -156,6 +163,7 @@ const ZONE_COLORS = ['#EF9F27','#1D9E75','#3B82F6','#A855F7','#EC4899','#14B8A6'
 
 export default function Analytics() {
   const { zones, alerts, incidents, updateIncidentStatus } = useCrowdData();
+  const { footage } = useFootage();
 
   const chartData     = useMemo(() => buildChartData(zones), [zones]);
   const headcountData = useMemo(() => buildHeadcountTimeline(zones), [zones]);
@@ -176,7 +184,7 @@ export default function Analytics() {
           <p className="theme-text-muted text-sm mt-0.5">Sunburn Festival 2026 · Real-time session data</p>
         </div>
         <button
-          onClick={() => exportReport({ zones, alerts, incidents })}
+          onClick={() => exportReport({ zones, alerts, incidents, footage })}
           className="flex items-center gap-2 btn-primary"
         >
           <span>📄</span> Export Report

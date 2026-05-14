@@ -72,14 +72,14 @@ function UploadStep({ onNext }) {
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
         onClick={() => !file && inputRef.current?.click()}
-        className={`relative border-2 border-dashed rounded-2xl transition-all duration-300 cursor-pointer overflow-hidden
+        className={`relative border-2 border-dashed rounded-[24px] transition-all duration-300 cursor-pointer overflow-hidden backdrop-blur-md
           ${dragging
             ? 'border-cs-amber bg-cs-amber/10 scale-[1.01]'
             : file
               ? 'border-cs-green/60 bg-cs-green/5'
-              : 'theme-border theme-surface hover:border-cs-amber/50 hover:bg-cs-amber/5'
+              : 'border-cs-amber/60 bg-white/5 hover:border-cs-amber hover:bg-cs-amber/10'
           }`}
-        style={{ minHeight: '220px' }}
+        style={{ minHeight: '220px', boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.05), 0 8px 32px rgba(0,0,0,0.1)' }}
       >
         <input
           ref={inputRef}
@@ -434,7 +434,17 @@ function PolygonEditor({ videoUrl, onSave }) {
         />
 
         {/* Instruction overlay */}
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/70 text-white text-xs px-4 py-2 rounded-full backdrop-blur pointer-events-none">
+        <div
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none whitespace-nowrap text-xs font-medium px-4 py-2"
+          style={{
+            background: 'rgba(10,10,15,0.9)',
+            color: '#FFFFFF',
+            borderRadius: '999px',
+            border: '1px solid rgba(255,255,255,0.12)',
+            backdropFilter: 'blur(8px)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+          }}
+        >
           {instruction}
         </div>
 
