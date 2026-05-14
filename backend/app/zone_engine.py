@@ -1,6 +1,11 @@
 """
-IntelliCrowd — Zone Engine
+IntelliCrowd — Zone Engine (Refined)
 Assigns detected persons to polygon zones and tracks them across frames.
+
+Refinements:
+  - Zone entry/exit counting with directional flow
+  - Temporal smoothing integration
+  - Hybrid YOLO + CSRNet density blending
 """
 from __future__ import annotations
 import json
@@ -11,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 from app.schemas import BoundingBox, DetectionFrame, MovementVector, ZoneConfig, DensityPoint
+from app.temporal_smoother import TemporalSmoother
 
 # ─── Load zone config ─────────────────────────────────────────────────────────
 
@@ -83,6 +89,15 @@ class TrackHistory:
         vx, vy = self.velocity
         return math.sqrt(vx ** 2 + vy ** 2)
 
+    @property
+    def movement_vector(self) -> Tuple[float, float]:
+        """Cumulative movement direction (first → last position)."""
+        if len(self.positions) < 2:
+            return (0.0, 0.0)
+        dx = self.positions[-1][0] - self.positions[0][0]
+        dy = self.positions[-1][1] - self.positions[0][1]
+        return (dx, dy)
+
 
 # ─── Zone State ───────────────────────────────────────────────────────────────
 
@@ -100,11 +115,31 @@ class ZoneState:
         self.active_tracks: Dict[int, TrackHistory] = {}
         self.density_history: deque[DensityPoint] = deque(maxlen=60)
 
+        # ── Entry/Exit counting (Refinement #9) ──
+        self.entry_count: int = 0
+        self.exit_count: int = 0
+
+        # ── Smoothed values (Refinement #4) ──
+        self.smoothed_count: int = 0
+        self.smoothed_density: float = 0.0
+        self.smoothed_occupancy: float = 0.0
+
+        # ── Hybrid count from CSRNet (Refinement #7) ──
+        self.csrnet_zone_density: float = 0.0
+
     def update(self, tracks: List[Tuple[int, float, float]]):
         """
         tracks: list of (track_id, cx, cy) for persons assigned to this zone.
         """
         current_ids = {tid for tid, _, _ in tracks}
+
+        # ── Entry/Exit tracking ──────────────────────────────────────────
+        prev_ids = set(self.active_tracks.keys())
+        new_entries = current_ids - prev_ids
+        exits = prev_ids - current_ids
+
+        self.entry_count += len(new_entries)
+        self.exit_count += len(exits)
 
         # Update / create track histories
         for tid, cx, cy in tracks:
@@ -129,20 +164,40 @@ class ZoneState:
         ))
 
     @property
+    def net_flow(self) -> int:
+        """Net flow = entries - exits (positive = filling up)."""
+        return self.entry_count - self.exit_count
+
+    @property
     def people_count(self) -> int:
         base_count = len(self.active_tracks)
         multiplier = getattr(self.config, 'multiplier', 1.0)
         return int(base_count * multiplier)
 
     @property
+    def hybrid_count(self) -> int:
+        """
+        Hybrid YOLO + CSRNet count (Refinement #7).
+        Sparse → trust YOLO. Dense → blend with CSRNet.
+        """
+        yolo_count = self.people_count
+        if yolo_count < 30:
+            return yolo_count
+        # Blend: 40% YOLO + 60% CSRNet
+        if self.csrnet_zone_density > 0:
+            blended = 0.4 * yolo_count + 0.6 * self.csrnet_zone_density
+            return max(yolo_count, int(blended))
+        return yolo_count
+
+    @property
     def occupancy_percent(self) -> float:
-        return min(100.0, self.people_count / max(1, self.config.capacity) * 100)
+        return min(100.0, self.hybrid_count / max(1, self.config.capacity) * 100)
 
     @property
     def density_score(self) -> float:
         if self.area < 1:
             return 0.0
-        return min(1.0, self.people_count / (self.area / 4000))
+        return min(1.0, self.hybrid_count / (self.area / 4000))
 
     @property
     def avg_speed(self) -> float:
@@ -211,15 +266,41 @@ class ZoneEngine:
     """
     Assigns bounding boxes from a detection frame to polygon zones,
     maintains per-zone state, and provides current snapshots.
+
+    Refined with:
+      - Entry/exit counting per zone
+      - Temporal smoothing integration
+      - Cross-zone track migration detection
+      - Hybrid YOLO + CSRNet density integration
     """
 
     def __init__(self, zone_configs: Optional[List[ZoneConfig]] = None):
         configs = zone_configs or load_zone_configs()
+        self.config = configs
         self.zones: Dict[str, ZoneState] = {z.zone_id: ZoneState(z) for z in configs}
+        self._smoother = TemporalSmoother(window=10)
 
-    def process_frame(self, frame: DetectionFrame):
-        """Assign boxes to zones and update zone states."""
-        # group tracks per zone
+        # ── Cross-zone tracking (Refinement #9) ──
+        # track_id → zone_id (last known zone for each tracked person)
+        self._track_zone_map: Dict[int, str] = {}
+
+    def process_frame(self, frame: DetectionFrame, csrnet_density_map=None, csrnet_engine=None):
+        """
+        Assign boxes to zones and update zone states.
+        
+        Args:
+            frame: Detection frame with bounding boxes
+            csrnet_density_map: Optional CSRNet density map for hybrid counting
+            csrnet_engine: Optional CSRNetEngine instance for zone-level density
+        """
+        # ── Update CSRNet zone densities (Refinement #7) ─────────────────
+        if csrnet_density_map is not None and csrnet_engine is not None:
+            for zone_id, state in self.zones.items():
+                state.csrnet_zone_density = csrnet_engine.get_zone_density(
+                    csrnet_density_map, state.config.polygon
+                )
+
+        # ── Group tracks per zone ────────────────────────────────────────
         zone_tracks: Dict[str, List[Tuple[int, float, float]]] = {zid: [] for zid in self.zones}
 
         for i, box in enumerate(frame.boxes):
@@ -228,14 +309,42 @@ class ZoneEngine:
             for zone_id, state in self.zones.items():
                 if point_in_polygon(cx, cy, state.config.polygon):
                     zone_tracks[zone_id].append((tid, cx, cy))
+
+                    # ── Cross-zone entry/exit detection ──────────────────
+                    prev_zone = self._track_zone_map.get(tid)
+                    if prev_zone and prev_zone != zone_id:
+                        # Person migrated from prev_zone → zone_id
+                        if prev_zone in self.zones:
+                            self.zones[prev_zone].exit_count += 1
+                        state.entry_count += 1
+                    self._track_zone_map[tid] = zone_id
                     break  # person assigned to first matching zone
 
+        # ── Update zone states ───────────────────────────────────────────
         for zone_id, tracks in zone_tracks.items():
             self.zones[zone_id].update(tracks)
 
+            # ── Apply temporal smoothing (Refinement #4) ─────────────────
+            state = self.zones[zone_id]
+            s_count, s_density, s_occ = self._smoother.smooth(
+                zone_id,
+                state.people_count,
+                state.density_score,
+                state.occupancy_percent,
+            )
+            state.smoothed_count = s_count
+            state.smoothed_density = s_density
+            state.smoothed_occupancy = s_occ
+
+        # ── Clean up stale track→zone mappings ───────────────────────────
+        active_tids = {box.track_id for box in frame.boxes if box.track_id is not None}
+        stale = [tid for tid in self._track_zone_map if tid not in active_tids]
+        for tid in stale:
+            del self._track_zone_map[tid]
+
     def get_all_states(self) -> Dict[str, ZoneState]:
         return self.zones
-        
+
     def get_density_history(self, zone_id: str) -> List[DensityPoint]:
         state = self.zones.get(zone_id)
         if not state:

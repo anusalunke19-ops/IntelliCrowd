@@ -1,12 +1,18 @@
 """
-IntelliCrowd — Metrics Engine
+IntelliCrowd — Metrics Engine (Refined)
 Computes per-zone metrics from ZoneState snapshots.
+
+Refinements:
+  - Entry/exit counts and net flow in metrics
+  - Smoothed values from temporal smoother
+  - Prediction text and time-to-critical from PredictionEngine
 """
 from __future__ import annotations
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict, List, Optional
 from app.schemas import ZoneMetrics
 from app.zone_engine import ZoneState, ZoneConfig
+from app.prediction_engine import PredictionEngine
 
 # Simulated weather penalty (e.g. high heat increases dwell anomaly)
 WEATHER_PENALTY = 0.15   # fixed value for demo; range 0–1
@@ -74,6 +80,11 @@ def _reasons(state: ZoneState) -> List[str]:
         r.append("headcount rising rapidly")
     if state.dwell_time > 150:
         r.append("extended dwell time")
+    # Entry/exit context
+    if state.net_flow > 5:
+        r.append(f"net inflow of {state.net_flow} — zone filling")
+    elif state.net_flow < -5:
+        r.append(f"net outflow of {abs(state.net_flow)} — zone clearing")
     return r or ["nominal"]
 
 
@@ -94,6 +105,7 @@ def _recommended_action(state: ZoneState, risk: str) -> str:
 def build_zone_metrics(
     state: ZoneState,
     timestamp: datetime | None = None,
+    prediction_engine: Optional[PredictionEngine] = None,
 ) -> ZoneMetrics:
     ts = timestamp or datetime.now(timezone.utc)
     occ = round(state.occupancy_percent, 1)
@@ -101,6 +113,24 @@ def build_zone_metrics(
     trend = state.trend
     risk_level = _risk_level(occ, flow, trend)
     risk_score = compute_risk_score(state)
+
+    # ── Predictions (Refinement #10) ─────────────────────────────────────
+    prediction_text = None
+    predicted_ttc = None
+    rate_of_change = None
+
+    if prediction_engine:
+        critical_pct = state.config.critical_threshold * 100
+        pred = prediction_engine.update(
+            zone_id=state.config.zone_id,
+            label=state.config.label,
+            occupancy_percent=occ,
+            critical_threshold_pct=critical_pct,
+        )
+        if pred:
+            prediction_text = pred.prediction_text
+            predicted_ttc = pred.predicted_time_to_critical
+            rate_of_change = pred.rate_per_minute
 
     return ZoneMetrics(
         zone_id=state.config.zone_id,
@@ -120,12 +150,24 @@ def build_zone_metrics(
         recommended_action=_recommended_action(state, risk_level),
         timestamp=ts,
         density_history=list(state.density_history),
+        # ── Refinement #9: Entry/Exit ──
+        entry_count=state.entry_count,
+        exit_count=state.exit_count,
+        net_flow=state.net_flow,
+        # ── Refinement #4: Smoothed values ──
+        smoothed_count=state.smoothed_count,
+        smoothed_occupancy=round(state.smoothed_occupancy, 1),
+        # ── Refinement #10: Predictions ──
+        prediction=prediction_text,
+        predicted_time_to_critical=predicted_ttc,
+        rate_of_change=rate_of_change,
     )
 
 
 def build_all_metrics(
     zone_states: Dict[str, ZoneState],
     timestamp: datetime | None = None,
+    prediction_engine: Optional[PredictionEngine] = None,
 ) -> List[ZoneMetrics]:
     ts = timestamp or datetime.now(timezone.utc)
-    return [build_zone_metrics(s, ts) for s in zone_states.values()]
+    return [build_zone_metrics(s, ts, prediction_engine) for s in zone_states.values()]

@@ -28,6 +28,7 @@ class ZoneConfig(BaseModel):
     critical_threshold: float = 0.85
     direction_rule: Optional[str] = None   # "entry_only", "exit_only", "bidirectional"
     multiplier: float = 1.0                # Extrapolation factor for headcounts
+    roi_polygon: Optional[List[List[float]]] = None  # Optional ROI mask override
 
 
 # ─── Detection ────────────────────────────────────────────────────────────────
@@ -89,6 +90,20 @@ class ZoneMetrics(BaseModel):
     timestamp: datetime
     density_history: List[DensityPoint] = Field(default_factory=list)
 
+    # ── Entry/Exit tracking (Refinement #9) ──
+    entry_count: int = 0
+    exit_count: int = 0
+    net_flow: int = 0                  # entry - exit
+
+    # ── Temporal smoothing (Refinement #4) ──
+    smoothed_count: int = 0
+    smoothed_occupancy: float = 0.0
+
+    # ── Predictive analytics (Refinement #10) ──
+    prediction: Optional[str] = None
+    predicted_time_to_critical: Optional[float] = None
+    rate_of_change: Optional[float] = None     # %/min
+
 
 # ─── Alerts ───────────────────────────────────────────────────────────────────
 
@@ -98,6 +113,8 @@ AlertType = Literal[
     "COUNTER_FLOW",
     "BOTTLENECK",
     "CROWD_STOP",
+    "CLUSTER_DETECTED",
+    "PREDICTIVE_WARNING",
 ]
 
 AlertSeverity = Literal["P1", "P2", "P3"]
@@ -169,6 +186,7 @@ class LivePayload(BaseModel):
     heatmap_available: bool = False
     detections: List[BoundingBox] = []
     incidents: List[Incident] = []
+    predictions: List[dict] = Field(default_factory=list)  # Zone predictions
 
 
 # ─── Camera Config ────────────────────────────────────────────────────────────

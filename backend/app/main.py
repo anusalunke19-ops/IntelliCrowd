@@ -1,6 +1,12 @@
 """
-IntelliCrowd — FastAPI Main
+IntelliCrowd — FastAPI Main (Refined)
 WebSocket + REST API for the crowd intelligence pipeline.
+
+Wires together all refined engines:
+  - VideoDetector (YOLOv8s, ROI, dynamic conf, motion filter, perspective, hybrid)
+  - ZoneEngine (entry/exit counting, temporal smoothing, hybrid CSRNet)
+  - PredictionEngine (linear extrapolation, time-to-critical)
+  - AlertEngine (with PREDICTIVE_WARNING)
 """
 from __future__ import annotations
 import asyncio
@@ -26,6 +32,7 @@ from app.zone_engine import ZoneEngine, load_zone_configs
 from app.metrics_engine import build_all_metrics
 from app.risk_engine import classify_global_risk, top_risk_zones
 from app.alert_engine import AlertEngine
+from app.prediction_engine import PredictionEngine
 
 # Rebuild models to resolve forward references
 LivePayload.model_rebuild()
@@ -34,7 +41,7 @@ Incident.model_rebuild()
 
 # ─── App setup ────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="IntelliCrowd API", version="1.0.0")
+app = FastAPI(title="IntelliCrowd API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,6 +55,9 @@ app.add_middleware(
 
 zone_configs = load_zone_configs()
 
+# Extract zone polygons for ROI masking
+_zone_polygons = [z.polygon for z in zone_configs]
+
 # Auto-recover last uploaded video if it exists
 _temp_dir = Path(tempfile.gettempdir()) / "intellicrowd"
 _default_src = None
@@ -58,9 +68,14 @@ if _temp_dir.exists():
         _mp4s.sort(key=lambda x: x.stat().st_mtime, reverse=True)
         _default_src = str(_mp4s[0])
 
-detector = VideoDetector(source=_default_src, camera_id="cam_entrance_01")
+detector = VideoDetector(
+    source=_default_src,
+    camera_id="cam_entrance_01",
+    zone_polygons=_zone_polygons,       # ROI masking from zone config
+)
 zone_engine = ZoneEngine(zone_configs)
 alert_engine = AlertEngine()
+prediction_engine = PredictionEngine(history_len=30)  # Refinement #10
 
 # In-memory stores
 _ws_clients: List[WebSocket] = []
@@ -73,19 +88,32 @@ _latest_payload: Optional[LivePayload] = None
 # ─── Background pipeline loop ─────────────────────────────────────────────────
 
 async def pipeline_loop():
-    """Runs detection → zone assignment → metrics → alerting every 2 seconds."""
+    """Runs detection → zone assignment → metrics → alerting every 0.3 seconds."""
     global _latest_metrics, _latest_payload
 
     while True:
         try:
             print(f"[pipeline] Processing frame (Real: {detector._real})...", flush=True)
             frame = detector.next_frame()
+
+            # ── Zone assignment with CSRNet hybrid integration ───────────
             print(f"[pipeline] Zone assignment...", flush=True)
-            zone_engine.process_frame(frame)
+            zone_engine.process_frame(
+                frame,
+                csrnet_density_map=detector.density_map,
+                csrnet_engine=detector._csrnet,
+            )
+
+            # ── Build metrics with prediction engine ─────────────────────
             print(f"[pipeline] Building metrics...", flush=True)
-            metrics = build_all_metrics(zone_engine.get_all_states())
+            metrics = build_all_metrics(
+                zone_engine.get_all_states(),
+                prediction_engine=prediction_engine,
+            )
+
+            # ── Process alerts with prediction awareness ─────────────────
             print(f"[pipeline] Processing alerts...", flush=True)
-            new_alerts = alert_engine.process(metrics)
+            new_alerts = alert_engine.process(metrics, prediction_engine=prediction_engine)
             for a in new_alerts:
                 _alert_history.append(a)
 
@@ -98,6 +126,18 @@ async def pipeline_loop():
                 overall_risk=overall_risk,
             )
 
+            # ── Build predictions summary for payload ────────────────────
+            predictions_summary = []
+            for pred in prediction_engine.get_all_predictions().values():
+                predictions_summary.append({
+                    "zone_id": pred.zone_id,
+                    "label": pred.label,
+                    "rate_per_minute": pred.rate_per_minute,
+                    "predicted_time_to_critical": pred.predicted_time_to_critical,
+                    "prediction_text": pred.prediction_text,
+                    "current_occupancy": pred.current_occupancy,
+                })
+
             payload = LivePayload(
                 camera_id="cam_entrance_01",
                 timestamp=datetime.now(timezone.utc),
@@ -107,6 +147,7 @@ async def pipeline_loop():
                 heatmap_available=detector._latest_heatmap is not None or not CV2_AVAILABLE,
                 detections=frame.boxes,
                 incidents=list(_incidents.values()),
+                predictions=predictions_summary,
             )
             _latest_metrics = metrics
             _latest_payload = payload
@@ -123,7 +164,9 @@ async def pipeline_loop():
                 _ws_clients.remove(ws)
 
         except Exception as e:
+            import traceback
             print(f"[pipeline] Error: {e}")
+            traceback.print_exc()
 
         await asyncio.sleep(0.3)
 
@@ -252,17 +295,20 @@ async def upload_video(file: UploadFile = File(...)):
     temp_dir = Path(tempfile.gettempdir()) / "intellicrowd"
     temp_dir.mkdir(exist_ok=True)
     temp_path = temp_dir / file.filename
-    
+
     with open(temp_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
-        
+
     print(f"[main] Video uploaded to {temp_path}")
-    
-    # Reinitialize detector with the new video
+
+    # Reinitialize detector with the new video and zone ROI
     if detector:
         detector.release()
-    detector = VideoDetector(source=str(temp_path))
-    
+    detector = VideoDetector(
+        source=str(temp_path),
+        zone_polygons=_zone_polygons,
+    )
+
     return {"ok": True, "message": "Video loaded successfully"}
 
 
@@ -274,6 +320,63 @@ async def get_latest_frame():
     return Response(content=frame_bytes, media_type="image/jpeg")
 
 
+# ─── Predictions endpoint (Refinement #10) ───────────────────────────────────
+
+@app.get("/api/predictions")
+async def get_predictions():
+    """Return predictive analytics for all zones."""
+    preds = prediction_engine.get_all_predictions()
+    result = []
+    for pred in preds.values():
+        result.append({
+            "zone_id": pred.zone_id,
+            "label": pred.label,
+            "rate_per_minute": pred.rate_per_minute,
+            "predicted_time_to_critical": pred.predicted_time_to_critical,
+            "prediction_text": pred.prediction_text,
+            "current_occupancy": pred.current_occupancy,
+            "critical_threshold": pred.critical_threshold,
+            "is_imminent": prediction_engine.is_imminent_critical(pred.zone_id),
+        })
+    return result
+
+
+# ─── Zone flow endpoint (Refinement #9) ─────────────────────────────────────
+
+@app.get("/api/zones/{zone_id}/flow")
+async def get_zone_flow(zone_id: str):
+    """Return entry/exit/net flow data for a specific zone."""
+    state = zone_engine.zones.get(zone_id)
+    if not state:
+        raise HTTPException(404, "Zone not found")
+    return {
+        "zone_id": zone_id,
+        "label": state.config.label,
+        "entry_count": state.entry_count,
+        "exit_count": state.exit_count,
+        "net_flow": state.net_flow,
+        "people_count": state.people_count,
+        "smoothed_count": state.smoothed_count,
+        "trend": state.trend,
+    }
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "version": "2.0.0",
+        "refinements": [
+            "yolov8s_with_fallback",
+            "roi_masking",
+            "dynamic_confidence",
+            "temporal_smoothing",
+            "bytetrack_tracking",
+            "perspective_scaling",
+            "hybrid_counting",
+            "motion_filtering",
+            "entry_exit_counting",
+            "predictive_analytics",
+        ],
+    }
