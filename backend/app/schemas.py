@@ -27,6 +27,7 @@ class ZoneConfig(BaseModel):
     warning_threshold: float = 0.60
     critical_threshold: float = 0.85
     direction_rule: Optional[str] = None   # "entry_only", "exit_only", "bidirectional"
+    multiplier: float = 1.0                # Extrapolation factor for headcounts
 
 
 # ─── Detection ────────────────────────────────────────────────────────────────

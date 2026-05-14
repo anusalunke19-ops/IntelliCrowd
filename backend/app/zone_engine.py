@@ -130,7 +130,9 @@ class ZoneState:
 
     @property
     def people_count(self) -> int:
-        return len(self.active_tracks)
+        base_count = len(self.active_tracks)
+        multiplier = getattr(self.config, 'multiplier', 1.0)
+        return int(base_count * multiplier)
 
     @property
     def occupancy_percent(self) -> float:

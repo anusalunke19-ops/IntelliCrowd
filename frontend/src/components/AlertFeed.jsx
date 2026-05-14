@@ -36,7 +36,8 @@ function timeAgo(date) {
 export default function AlertFeed({ maxVisible = 20 }) {
   const { alerts, acknowledgeAlert, escalateAlert, resolveAlert, declareIncident, logAction } = useCrowdData();
 
-  const visible = alerts.slice(0, maxVisible);
+  // Latest alert on top — reverse chronological
+  const visible = [...alerts].reverse().slice(0, maxVisible);
 
   const handleDeclare = (alert) => {
     declareIncident({
@@ -99,12 +100,6 @@ export default function AlertFeed({ maxVisible = 20 }) {
                 className="text-xs px-2 py-1 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 transition-colors"
               >
                 Escalate
-              </button>
-              <button
-                onClick={() => handleDeclare(alert)}
-                className="text-xs px-2 py-1 rounded bg-cs-red/20 text-cs-red border border-cs-red/30 hover:bg-cs-red/30 transition-colors"
-              >
-                Declare Incident
               </button>
             </div>
           )}

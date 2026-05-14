@@ -6,9 +6,10 @@
       "type": "entry",
       "polygon": [[50, 30], [340, 30], [340, 200], [50, 200]],
       "capacity": 80,
-      "warning_threshold": 0.60,
-      "critical_threshold": 0.85,
-      "direction_rule": "entry_only"
+      "warning_threshold": 0.35,
+      "critical_threshold": 0.60,
+      "direction_rule": "entry_only",
+      "multiplier": 1.2
     },
     {
       "zone_id": "gate_b",
@@ -16,8 +17,8 @@
       "type": "entry",
       "polygon": [[940, 30], [1230, 30], [1230, 200], [940, 200]],
       "capacity": 80,
-      "warning_threshold": 0.60,
-      "critical_threshold": 0.85,
+      "warning_threshold": 0.35,
+      "critical_threshold": 0.60,
       "direction_rule": "entry_only"
     },
     {
@@ -36,8 +37,8 @@
       "type": "exit",
       "polygon": [[50, 520], [340, 520], [340, 690], [50, 690]],
       "capacity": 60,
-      "warning_threshold": 0.60,
-      "critical_threshold": 0.85,
+      "warning_threshold": 0.35,
+      "critical_threshold": 0.60,
       "direction_rule": "exit_only"
     },
     {
@@ -46,9 +47,10 @@
       "type": "open_area",
       "polygon": [[280, 250], [1000, 250], [1000, 490], [280, 490]],
       "capacity": 90,
-      "warning_threshold": 0.65,
-      "critical_threshold": 0.88,
-      "direction_rule": "bidirectional"
+      "warning_threshold": 0.40,
+      "critical_threshold": 0.65,
+      "direction_rule": "bidirectional",
+      "multiplier": 1.6
     },
     {
       "zone_id": "queue_lane",
@@ -56,8 +58,8 @@
       "type": "queue",
       "polygon": [[1000, 200], [1230, 200], [1230, 520], [1000, 520]],
       "capacity": 50,
-      "warning_threshold": 0.60,
-      "critical_threshold": 0.85,
+      "warning_threshold": 0.35,
+      "critical_threshold": 0.60,
       "direction_rule": "entry_only"
     }
   ]

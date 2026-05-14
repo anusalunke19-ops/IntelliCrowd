@@ -13,11 +13,11 @@ from app.schemas import Alert, AlertSeverity, AlertType, ZoneMetrics
 
 # ─── Alert thresholds ─────────────────────────────────────────────────────────
 
-DENSITY_CRITICAL_THRESHOLD = 95.0     # occupancy %
-SURGE_THRESHOLD = 1.20                 # 20% rise
-SURGE_WINDOW_FRAMES = 40              # ~2 min at 5 FPS (2 * 60 / 3 ≈ 40 ticks)
-BOTTLENECK_MIN_FRAMES = 15            # ~3 min
-CROWD_STOP_SPEED = 0.02               # m/s
+DENSITY_CRITICAL_THRESHOLD = 70.0     # occupancy % — triggers at 70% capacity
+SURGE_THRESHOLD = 1.10                 # 10% rise within window (was 20%)
+SURGE_WINDOW_FRAMES = 10              # ~30s at 3 ticks/s (was 40 = 2 min)
+BOTTLENECK_MIN_FRAMES = 5             # ~15s sustained (was 15 = 3 min)
+CROWD_STOP_SPEED = 0.05               # m/s — catches slower movement (was 0.02)
 
 
 class AlertEngine:
@@ -33,7 +33,7 @@ class AlertEngine:
         self._bottleneck_counter: Dict[str, int] = defaultdict(int)
         # alert history (last max_history)
         self._history: deque[Alert] = deque(maxlen=max_history)
-        # suppress duplicate alerts within 30 s
+        # suppress duplicate alerts within 10 s (was 30s)
         self._last_alert: Dict[str, datetime] = {}
 
     def _suppress(self, key: str, cooldown_secs: int = 30) -> bool:
@@ -71,7 +71,7 @@ class AlertEngine:
             # ── DENSITY_CRITICAL ──────────────────────────────────────────
             if m.occupancy_percent >= DENSITY_CRITICAL_THRESHOLD:
                 key = f"DENSITY_CRITICAL:{zid}"
-                if not self._suppress(key, 45):
+                if not self._suppress(key, 15):   # cooldown 15s (was 45s)
                     new_alerts.append(self._emit(
                         "DENSITY_CRITICAL", zid, "P1",
                         f"{m.label} is at {m.occupancy_percent:.0f}% capacity — imminent crush risk",
@@ -83,9 +83,9 @@ class AlertEngine:
             if len(history) >= SURGE_WINDOW_FRAMES:
                 baseline = history[-SURGE_WINDOW_FRAMES][1]
                 current = history[-1][1]
-                if baseline > 5 and current / baseline >= SURGE_THRESHOLD:
+                if baseline > 2 and current / baseline >= SURGE_THRESHOLD:
                     key = f"SURGE:{zid}"
-                    if not self._suppress(key, 60):
+                    if not self._suppress(key, 20):  # was 60s
                         new_alerts.append(self._emit(
                             "SURGE_DETECTED", zid, "P1",
                             f"{m.label} headcount surged {current / baseline * 100 - 100:.0f}% in <2 min",
@@ -95,7 +95,7 @@ class AlertEngine:
             # ── COUNTER_FLOW ──────────────────────────────────────────────
             if m.flow_direction == "opposing":
                 key = f"COUNTER_FLOW:{zid}"
-                if not self._suppress(key, 60):
+                if not self._suppress(key, 20):  # was 60s
                     new_alerts.append(self._emit(
                         "COUNTER_FLOW", zid, "P2",
                         f"Opposing crowd flows detected in {m.label} — collision risk elevated",
@@ -103,14 +103,14 @@ class AlertEngine:
                     ))
 
             # ── BOTTLENECK ────────────────────────────────────────────────
-            if m.flow_direction in ("stationary", "opposing") and m.people_count > 10:
+            if m.flow_direction in ("stationary", "opposing") and m.people_count > 3:  # was 10
                 self._bottleneck_counter[zid] += 1
             else:
                 self._bottleneck_counter[zid] = 0
 
             if self._bottleneck_counter[zid] >= BOTTLENECK_MIN_FRAMES:
                 key = f"BOTTLENECK:{zid}"
-                if not self._suppress(key, 90):
+                if not self._suppress(key, 30):  # was 90s
                     new_alerts.append(self._emit(
                         "BOTTLENECK", zid, "P2",
                         f"Persistent bottleneck in {m.label} — flow obstructed for >3 min",
@@ -118,9 +118,9 @@ class AlertEngine:
                     ))
 
             # ── CROWD_STOP ────────────────────────────────────────────────
-            if m.avg_speed < CROWD_STOP_SPEED and m.people_count > 15:
+            if m.avg_speed < CROWD_STOP_SPEED and m.people_count > 3:  # was 15
                 key = f"CROWD_STOP:{zid}"
-                if not self._suppress(key, 60):
+                if not self._suppress(key, 20):  # was 60s
                     new_alerts.append(self._emit(
                         "CROWD_STOP", zid, "P2",
                         f"Crowd movement has stopped in {m.label} — pressure build-up possible",

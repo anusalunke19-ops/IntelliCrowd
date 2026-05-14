@@ -328,7 +328,7 @@ function VideoMap({ incidents = [] }) {
       if (!canvas) return;
       const rect = canvas.parentElement.getBoundingClientRect();
       canvas.width = rect.width;
-      canvas.height = Math.min(420, Math.round(rect.width * 9 / 16));
+      canvas.height = Math.min(Math.round(window.innerHeight * 0.72), Math.round(rect.width * 9 / 16));
     };
     update();
     window.addEventListener('resize', update);
@@ -427,10 +427,13 @@ function VideoMap({ incidents = [] }) {
 
       <button
         onClick={() => setShowHeatmap(!showHeatmap)}
-        className={`absolute top-2 right-2 z-20 px-3 py-1.5 rounded text-xs font-bold transition-colors ${showHeatmap ? 'bg-cs-amber text-black shadow-[0_0_10px_rgba(239,159,39,0.5)]' : 'bg-black/50 text-white hover:bg-black/80'
-          }`}
+        className={`absolute top-2 right-2 z-20 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+          showHeatmap
+            ? 'bg-cs-amber border-cs-amber text-black shadow-[0_0_12px_rgba(239,159,39,0.6)]'
+            : 'bg-gray-900 border-gray-600 text-gray-100 hover:border-cs-amber hover:text-cs-amber'
+        }`}
       >
-        Heatmap {showHeatmap ? 'ON' : 'OFF'}
+        🌡 Heatmap {showHeatmap ? 'ON' : 'OFF'}
       </button>
     </div>
   );

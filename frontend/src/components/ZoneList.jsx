@@ -14,7 +14,8 @@ export default function ZoneList({ zones = [] }) {
   return (
     <div className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-180px)]">
       {zones.map(zone => {
-        const occ = Math.min(100, Math.round((zone.currentCount / zone.capacity) * 100));
+        // Allow up to 120% so bars visually overflow when count exceeds defined capacity
+        const occ = Math.min(120, Math.round((zone.currentCount / Math.max(1, zone.capacity)) * 100));
         const risk = occ >= 85 ? 'critical' : occ >= 60 ? 'warning' : 'safe';
         const colors = RISK_COLORS[risk];
 

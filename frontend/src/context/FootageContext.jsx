@@ -48,9 +48,9 @@ export function FootageProvider({ children }) {
         zone_id: z.id,
         label: z.label,
         polygon: z.points.map(p => [p.x, p.y]), // [[x,y], ...] in 0-1 range
-        capacity: 100, // default
-        warning_threshold: 60,
-        critical_threshold: 85
+        capacity: z.capacity || 50,              // user-defined capacity
+        warning_threshold: 0.35,
+        critical_threshold: 0.60,
       }));
 
       await fetch('http://localhost:8000/api/config/zones', {

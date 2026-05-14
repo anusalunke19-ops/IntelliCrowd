@@ -253,7 +253,7 @@ class VideoDetector:
             frame, 
             classes=[0], 
             imgsz=1280, 
-            conf=0.15, 
+            conf=0.10, 
             persist=True, 
             verbose=False
         )[0]

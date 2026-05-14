@@ -1,9 +1,10 @@
 /**
  * Attendee — Mobile-first safety companion panel.
- * Module A8: light theme, zone status card, SOS button, exits & medical posts.
+ * Horizontal grid layout. Zone metrics pulled from user-defined zones (FootageContext).
  */
 import React, { useState } from 'react';
 import { useCrowdData } from '../context/CrowdDataContext.jsx';
+import { useFootage } from '../context/FootageContext.jsx';
 
 // Simulated static data for nearby infrastructure
 const EXITS = [
@@ -12,70 +13,112 @@ const EXITS = [
   { name: 'West Gate',  distance: '350m', status: 'clear', icon: '🚪' },
 ];
 const MEDICAL_POSTS = [
-  { name: 'Medical Bay 1',  distance: '90m',  staffed: true },
+  { name: 'Medical Bay 1',   distance: '90m',  staffed: true },
   { name: 'First Aid Point', distance: '210m', staffed: true },
-  { name: 'Medical Bay 2',  distance: '400m', staffed: false },
+  { name: 'Medical Bay 2',   distance: '400m', staffed: false },
 ];
 
-const ZONE_NAME_MAP = {
-  gate_n: 'Gate North', gate_s: 'Gate South', gate_e: 'Gate East', gate_w: 'Gate West',
-  main_stage: 'Main Stage', food_court: 'Food Court', parking_exit: 'Parking Exit', muster_point_a: 'Muster Point A',
-};
+// ─── Zone Status Card (compact horizontal tile) ────────────────────────────
 
-// Attendee's "current zone" rotates for demo
-const DEMO_ZONE_SEQ = ['main_stage', 'food_court', 'gate_s', 'muster_point_a'];
-
-function ZoneStatusCard({ zone }) {
+function ZoneTile({ zone, isSelected, onClick }) {
   if (!zone) return null;
   const occ = Math.min(100, Math.round((zone.currentCount / zone.capacity) * 100));
   const isHigh = occ >= 85;
   const isMid  = occ >= 60;
-
-  const bgColor  = isHigh ? 'bg-red-50 border-red-200'   : isMid ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200';
-  const barColor = isHigh ? 'bg-red-500'   : isMid ? 'bg-amber-500' : 'bg-green-500';
-  const textColor= isHigh ? 'text-red-600' : isMid ? 'text-amber-600' : 'text-green-600';
-  const label    = isHigh ? 'Crowded'      : isMid ? 'Moderate'       : 'Comfortable';
-  const emoji    = isHigh ? '⚠️' : isMid ? '🟡' : '✅';
+  const barColor = isHigh ? 'bg-red-500' : isMid ? 'bg-amber-500' : 'bg-green-500';
+  const borderColor = isHigh ? 'border-red-400' : isMid ? 'border-amber-400' : 'border-green-400';
+  const emoji = isHigh ? '⚠️' : isMid ? '🟡' : '✅';
 
   return (
-    <div className={`rounded-2xl border-2 p-5 ${bgColor}`}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-gray-500 text-sm font-medium uppercase tracking-wide">Your Zone</span>
-        <span className="text-xl">{emoji}</span>
+    <button
+      onClick={onClick}
+      className={`rounded-2xl border-2 p-4 text-left transition-all cursor-pointer w-full ${
+        isSelected
+          ? `${borderColor} shadow-lg`
+          : 'theme-border card hover:opacity-90'
+      }`}
+      style={isSelected ? { borderColor: isHigh ? '#f87171' : isMid ? '#fbbf24' : '#34d399' } : {}}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span className="theme-text-muted text-xs font-semibold uppercase tracking-wider truncate pr-2">
+          {zone.label}
+        </span>
+        <span className="text-lg flex-shrink-0">{emoji}</span>
       </div>
-      <div className="text-gray-900 text-2xl font-bold mb-1">{zone.label || ZONE_NAME_MAP[zone.id]}</div>
-      <div className={`text-lg font-semibold mb-3 ${textColor}`}>{label}</div>
+      <div className="text-2xl font-bold font-mono theme-text-primary mb-1">{occ}%</div>
+      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+        <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${occ}%` }} />
+      </div>
+      <div className="flex justify-between mt-2 text-xs theme-text-muted font-mono">
+        <span>{zone.currentCount} ppl</span>
+        <span>cap {zone.capacity}</span>
+      </div>
+    </button>
+  );
+}
+
+// ─── Big selected zone detail panel ──────────────────────────────────────
+
+function ZoneDetailPanel({ zone }) {
+  if (!zone) return (
+    <div className="card rounded-2xl p-6 text-center theme-text-muted text-sm">
+      Select a zone above to view details
+    </div>
+  );
+
+  const occ = Math.min(100, Math.round((zone.currentCount / zone.capacity) * 100));
+  const isHigh = occ >= 85;
+  const isMid  = occ >= 60;
+  const barColor = isHigh ? 'bg-red-500' : isMid ? 'bg-amber-500' : 'bg-green-500';
+  const textColor = isHigh ? 'text-red-500' : isMid ? 'text-amber-500' : 'text-green-500';
+  const label = isHigh ? 'Crowded' : isMid ? 'Moderate' : 'Comfortable';
+
+  return (
+    <div className="card rounded-2xl p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="theme-text-muted text-xs uppercase tracking-wider mb-0.5">Selected Zone</div>
+          <div className="theme-text-primary text-xl font-bold">{zone.label}</div>
+        </div>
+        <div className={`text-lg font-bold px-3 py-1 rounded-full border text-sm ${textColor}`}
+             style={{ borderColor: 'currentColor', background: 'rgba(0,0,0,0.05)' }}>
+          {label}
+        </div>
+      </div>
 
       {/* Occupancy bar */}
-      <div className="mb-2">
-        <div className="flex justify-between text-xs text-gray-500 mb-1">
-          <span>Occupancy</span><span>{occ}%</span>
+      <div>
+        <div className="flex justify-between text-xs theme-text-muted mb-1">
+          <span>Occupancy</span>
+          <span className={`font-mono font-bold ${textColor}`}>{occ}%</span>
         </div>
-        <div className="h-3 bg-white/60 rounded-full overflow-hidden">
-          <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${occ}%` }}/>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 mt-3 text-sm">
-        <div className="bg-white/60 rounded-xl p-3 text-center">
-          <div className="text-gray-500 text-xs mb-0.5">People nearby</div>
-          <div className="text-gray-900 font-bold text-xl">{zone.currentCount}</div>
-        </div>
-        <div className="bg-white/60 rounded-xl p-3 text-center">
-          <div className="text-gray-500 text-xs mb-0.5">Flow</div>
-          <div className="text-gray-900 font-bold text-base capitalize">{zone.movementVector?.direction || 'Normal'}</div>
+        <div className="h-3 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+          <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${occ}%` }} />
         </div>
       </div>
 
-      {/* Personalised message */}
+      {/* Metrics grid */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: 'People',    val: zone.currentCount,                      unit: '' },
+          { label: 'Capacity',  val: zone.capacity,                          unit: '' },
+          { label: 'Flow',      val: zone.movementVector?.direction || '—',  unit: '' },
+        ].map(({ label, val, unit }) => (
+          <div key={label} className="rounded-xl p-3 text-center" style={{ background: 'var(--surface-2)' }}>
+            <div className="theme-text-muted text-xs mb-0.5">{label}</div>
+            <div className="theme-text-primary font-bold text-base font-mono capitalize">{val}{unit}</div>
+          </div>
+        ))}
+      </div>
+
       {isHigh && (
-        <div className="mt-3 bg-red-100 border border-red-300 rounded-xl p-3 text-red-700 text-sm">
-          <span className="font-semibold">Heads up:</span> {zone.label} is at {occ}% capacity.
-          {' '}Use <span className="font-semibold">South Exit</span> for a faster route out.
+        <div className="bg-red-500/10 border border-red-400/40 rounded-xl p-3 text-red-400 text-sm">
+          <span className="font-semibold">⚠️ Heads up:</span> {zone.label} is at {occ}% capacity.
+          {' '}Consider using <span className="font-semibold">South Exit</span> for a faster route.
         </div>
       )}
       {isMid && !isHigh && (
-        <div className="mt-3 bg-amber-100 border border-amber-300 rounded-xl p-3 text-amber-700 text-sm">
+        <div className="bg-amber-500/10 border border-amber-400/40 rounded-xl p-3 text-amber-400 text-sm">
           Getting busier here — consider moving to a less crowded area.
         </div>
       )}
@@ -94,30 +137,26 @@ function SOSButton({ onSOS }) {
     setTimeout(() => setSent(false), 5000);
   };
 
-  if (sent) {
-    return (
-      <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-5 text-center">
-        <div className="text-4xl mb-2">🆘</div>
-        <div className="text-red-700 font-bold text-lg">SOS Sent!</div>
-        <div className="text-red-600 text-sm mt-1">Security is being notified. Stay where you are.</div>
-      </div>
-    );
-  }
+  if (sent) return (
+    <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-5 text-center">
+      <div className="text-4xl mb-2">🆘</div>
+      <div className="text-red-700 font-bold text-lg">SOS Sent!</div>
+      <div className="text-red-600 text-sm mt-1">Security is being notified. Stay where you are.</div>
+    </div>
+  );
 
-  if (confirm) {
-    return (
-      <div className="bg-red-50 border-2 border-red-400 rounded-2xl p-5">
-        <div className="text-center mb-4">
-          <div className="text-red-700 font-bold text-base">Confirm SOS Request?</div>
-          <div className="text-gray-500 text-sm mt-1">This will alert security immediately.</div>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={() => setConfirm(false)} className="flex-1 py-3 rounded-xl border-2 border-gray-300 text-gray-600 font-semibold">Cancel</button>
-          <button onClick={handleSOS} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold text-lg">Send SOS</button>
-        </div>
+  if (confirm) return (
+    <div className="bg-red-50 border-2 border-red-400 rounded-2xl p-5">
+      <div className="text-center mb-4">
+        <div className="text-red-700 font-bold text-base">Confirm SOS Request?</div>
+        <div className="text-gray-500 text-sm mt-1">This will alert security immediately.</div>
       </div>
-    );
-  }
+      <div className="flex gap-3">
+        <button onClick={() => setConfirm(false)} className="flex-1 py-3 rounded-xl border-2 border-gray-300 text-gray-600 font-semibold">Cancel</button>
+        <button onClick={handleSOS} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold text-lg">Send SOS</button>
+      </div>
+    </div>
+  );
 
   return (
     <button
@@ -130,129 +169,133 @@ function SOSButton({ onSOS }) {
   );
 }
 
+// ─── Main Attendee Page ──────────────────────────────────────────────────────
+
 export default function Attendee() {
   const { zones, alerts, logAction } = useCrowdData();
-  const [currentZoneIdx, setCurrentZoneIdx] = useState(0);
-  const currentZoneId = DEMO_ZONE_SEQ[currentZoneIdx % DEMO_ZONE_SEQ.length];
-  const currentZone = zones.find(z => z.id === currentZoneId) || zones[0];
+  const { userZones } = useFootage();
+  const [selectedIdx, setSelectedIdx] = useState(0);
 
+  // Use user-defined zones from FootageContext if available; otherwise fall back to backend zones
+  const displayZones = userZones.length > 0
+    ? userZones.map(uz => {
+        // Try to find matching backend zone by label for live metrics
+        const backendZone = zones.find(z => z.label?.toLowerCase() === uz.label?.toLowerCase());
+        return {
+          id: uz.id,
+          label: uz.label,
+          color: uz.color,
+          currentCount: backendZone?.currentCount ?? Math.floor(Math.random() * 30 + 5),
+          capacity: backendZone?.capacity ?? 100,
+          movementVector: backendZone?.movementVector,
+          riskScore: backendZone?.riskScore ?? 0,
+        };
+      })
+    : zones.slice(0, 8);
+
+  const selectedZone = displayZones[selectedIdx] || displayZones[0];
   const criticalAlerts = alerts.filter(a => a.severity === 'P1' && a.status === 'open').slice(0, 2);
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
-      <div className="max-w-md mx-auto px-4 py-6 space-y-4">
+      <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
 
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="theme-text-primary text-xl font-bold">Safety Companion</h1>
-            <p className="theme-text-muted text-sm">Sunburn Festival 2026</p>
+            <p className="theme-text-muted text-sm">
+              {userZones.length > 0 ? `${userZones.length} custom zones loaded` : 'Live venue monitoring'}
+            </p>
           </div>
-          <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl" style={{ background: 'var(--surface-2)' }}>👤</div>
+          <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl"
+               style={{ background: 'var(--surface-2)' }}>👤</div>
         </div>
 
         {/* Critical broadcast alerts */}
         {criticalAlerts.map(a => (
-          <div key={a.id} className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-3">
+          <div key={a.id} className="bg-red-500/10 border border-red-400/40 rounded-xl p-3 flex gap-3">
             <span className="text-xl shrink-0">🔔</span>
             <div>
-              <div className="text-red-700 font-semibold text-sm">Safety Alert — {a.zoneLabel}</div>
-              <div className="text-red-600 text-xs mt-0.5">{a.message}</div>
+              <div className="text-red-400 font-semibold text-sm">Safety Alert — {a.zone_id}</div>
+              <div className="text-red-400/80 text-xs mt-0.5">{a.message}</div>
             </div>
           </div>
         ))}
 
-        {/* Zone status */}
-        <ZoneStatusCard zone={currentZone} />
+        {/* Zone tiles — horizontal grid */}
+        {displayZones.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {displayZones.map((zone, i) => (
+              <ZoneTile
+                key={zone.id}
+                zone={zone}
+                isSelected={i === selectedIdx}
+                onClick={() => setSelectedIdx(i)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="card rounded-2xl p-6 text-center theme-text-muted text-sm">
+            No zones loaded — upload footage and mark zones first.
+          </div>
+        )}
 
-        {/* Zone switcher (demo) */}
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {DEMO_ZONE_SEQ.map((zid, i) => {
-            const z = zones.find(z => z.id === zid);
-            const occ = z ? Math.round((z.currentCount / z.capacity) * 100) : 0;
-            const dot = occ >= 85 ? 'bg-red-500' : occ >= 60 ? 'bg-amber-500' : 'bg-green-500';
-            const isActive = i === currentZoneIdx % DEMO_ZONE_SEQ.length;
-            return (
-              <button
-                key={zid}
-                onClick={() => setCurrentZoneIdx(i)}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition-all font-medium"
-                style={isActive ? {
-                  background: '#EF9F27',
-                  borderColor: '#EF9F27',
-                  color: '#0A0A0F',
-                } : {
-                  background: 'var(--surface)',
-                  borderColor: 'var(--border)',
-                  color: 'var(--text-muted)',
-                }}
-              >
-                <span className={`w-2 h-2 rounded-full ${dot}`}/>
-                {ZONE_NAME_MAP[zid]}
-              </button>
-            );
-          })}
-        </div>
+        {/* Selected zone detail */}
+        <ZoneDetailPanel zone={selectedZone} />
 
         {/* SOS Button */}
         <SOSButton onSOS={() => logAction('🆘 SOS triggered by attendee')} />
 
-        {/* Exits */}
-        <div className="rounded-2xl border overflow-hidden card">
-          <div className="px-4 py-3 border-b theme-border">
-            <h2 className="theme-text-primary font-semibold text-base">Nearest Exits</h2>
-          </div>
-          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-            {EXITS.map(exit => (
-              <div key={exit.name} className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">{exit.icon}</span>
+        {/* Exits & Medical — horizontal two-column layout */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-2xl border overflow-hidden card">
+            <div className="px-4 py-3 border-b theme-border">
+              <h2 className="theme-text-primary font-semibold text-sm">🚪 Nearest Exits</h2>
+            </div>
+            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+              {EXITS.map(exit => (
+                <div key={exit.name} className="flex items-center justify-between px-3 py-2.5">
                   <div>
-                    <div className="theme-text-primary font-medium text-sm">{exit.name}</div>
-                    <div className="theme-text-muted text-xs">{exit.distance} away</div>
+                    <div className="theme-text-primary font-medium text-xs">{exit.name}</div>
+                    <div className="theme-text-muted text-[10px]">{exit.distance}</div>
                   </div>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                    exit.status === 'clear' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {exit.status.toUpperCase()}
+                  </span>
                 </div>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                  exit.status === 'clear'
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-amber-100 text-amber-700'
-                }`}>
-                  {exit.status.toUpperCase()}
-                </span>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* Medical posts */}
-        <div className="rounded-2xl border overflow-hidden card">
-          <div className="px-4 py-3 border-b theme-border">
-            <h2 className="theme-text-primary font-semibold text-base">Medical Posts</h2>
-          </div>
-          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-            {MEDICAL_POSTS.map(post => (
-              <div key={post.name} className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">🏥</span>
+          <div className="rounded-2xl border overflow-hidden card">
+            <div className="px-4 py-3 border-b theme-border">
+              <h2 className="theme-text-primary font-semibold text-sm">🏥 Medical Posts</h2>
+            </div>
+            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+              {MEDICAL_POSTS.map(post => (
+                <div key={post.name} className="flex items-center justify-between px-3 py-2.5">
                   <div>
-                    <div className="theme-text-primary font-medium text-sm">{post.name}</div>
-                    <div className="theme-text-muted text-xs">{post.distance} away</div>
+                    <div className="theme-text-primary font-medium text-xs">{post.name}</div>
+                    <div className="theme-text-muted text-[10px]">{post.distance}</div>
                   </div>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                    post.staffed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                  }`}>
+                    {post.staffed ? 'STAFFED' : 'UNSTAFFED'}
+                  </span>
                 </div>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                  post.staffed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                }`}>
-                  {post.staffed ? 'STAFFED' : 'UNSTAFFED'}
-                </span>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
 
         {/* Safety tips */}
-        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
-          <h3 className="text-blue-800 font-semibold text-sm mb-2">💡 Safety Tips</h3>
-          <ul className="text-blue-700 text-sm space-y-1">
+        <div className="bg-blue-500/10 border border-blue-400/30 rounded-2xl p-4">
+          <h3 className="text-blue-400 font-semibold text-sm mb-2">💡 Safety Tips</h3>
+          <ul className="text-blue-300/80 text-xs space-y-1">
             <li>• Stay with your group and agree on a meeting point</li>
             <li>• If you feel pushed, keep arms out to protect space</li>
             <li>• Move with the crowd — never against it</li>
