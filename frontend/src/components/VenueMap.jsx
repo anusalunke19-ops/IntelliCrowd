@@ -380,39 +380,6 @@ function VideoMap({ incidents = [] }) {
         style={{ background: '#0D0D18' }}
       />
 
-      {/* Real-time alert toasts overlaid on the video */}
-      {activeAlerts.length > 0 && (
-        <div className="absolute bottom-3 right-3 flex flex-col gap-2 max-w-xs z-20">
-          {activeAlerts.slice(0, 3).map(alert => (
-            <div
-              key={alert.id}
-              className={`rounded-lg border p-2.5 text-xs backdrop-blur-sm animate-fade-in shadow-lg
-                ${alert.severity === 'CRITICAL' || alert.severity === 'P1'
-                  ? 'bg-cs-red/20 border-cs-red/50 text-cs-red'
-                  : alert.severity === 'WARNING' || alert.severity === 'P2'
-                    ? 'bg-cs-amber/20 border-cs-amber/50 text-cs-amber'
-                    : 'bg-cs-blue/20 border-cs-blue/50 text-cs-blue'
-                }`}
-            >
-              <div className="flex items-center justify-between gap-2 mb-0.5">
-                <div className="flex items-center gap-1.5 font-semibold font-mono">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] text-white
-                    ${alert.severity === 'CRITICAL' || alert.severity === 'P1' ? 'bg-cs-red' : alert.severity === 'WARNING' || alert.severity === 'P2' ? 'bg-cs-amber' : 'bg-cs-blue'}`}>
-                    {alert.severity}
-                  </span>
-                  {alert.type}
-                </div>
-                <button
-                  onClick={() => setDismissedAlerts(s => new Set([...s, alert.id]))}
-                  className="opacity-60 hover:opacity-100 text-white text-xs"
-                >✕</button>
-              </div>
-              <div className="opacity-80 mb-0.5">{alert.zone_id}</div>
-              <div className="text-white/80">{alert.message}</div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* No zones hint */}
       {userZones.length === 0 && (

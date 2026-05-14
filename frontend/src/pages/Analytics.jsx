@@ -155,7 +155,7 @@ const ZONE_COLORS = ['#EF9F27','#1D9E75','#3B82F6','#A855F7','#EC4899','#14B8A6'
 // ─── Analytics Page ───────────────────────────────────────────────────────
 
 export default function Analytics() {
-  const { zones, alerts, incidents } = useCrowdData();
+  const { zones, alerts, incidents, updateIncidentStatus } = useCrowdData();
 
   const chartData     = useMemo(() => buildChartData(zones), [zones]);
   const headcountData = useMemo(() => buildHeadcountTimeline(zones), [zones]);
@@ -193,6 +193,8 @@ export default function Analytics() {
           subtext="Intervention needed" color={p2Count > 0 ? 'text-cs-amber' : 'text-cs-green'} />
         <SummaryCard icon="🚨" label="Incidents" value={incidents.length}
           subtext="Declared by operators" color={incidents.length > 0 ? 'text-cs-red' : 'text-cs-green'} />
+        <SummaryCard icon="✅" label="Resolved" value={incidents.filter(i => i.status === 'Resolved').length}
+          subtext="Resolved incidents" color="text-cs-green" />
         <SummaryCard icon="⚡" label="Fastest Response" value={fastestResponse}
           subtext="Incident → resolve" color="text-cs-green" />
       </div>
@@ -273,6 +275,62 @@ export default function Analytics() {
                       {new Date(a.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </td>
                     <td className="py-2 capitalize theme-text-muted">{a.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Incident breakdown table */}
+      <div className="card p-5">
+        <h2 className="theme-text-primary font-semibold mb-4">Incident Log</h2>
+        {incidents.length === 0 ? (
+          <div className="theme-text-muted text-sm">No incidents declared in this session.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="theme-text-muted border-b theme-border">
+                  <th className="text-left py-2 font-mono">ID</th>
+                  <th className="text-left py-2 font-mono">Type</th>
+                  <th className="text-left py-2 font-mono">Severity</th>
+                  <th className="text-left py-2 font-mono">Zones</th>
+                  <th className="text-left py-2 font-mono">Reported</th>
+                  <th className="text-left py-2 font-mono">Resolved At</th>
+                  <th className="text-left py-2 font-mono">Notes</th>
+                  <th className="text-left py-2 font-mono">Status</th>
+                  <th className="text-left py-2 font-mono">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {incidents.map(i => (
+                  <tr key={i.id} className="border-b theme-border hover:opacity-80 transition-opacity">
+                    <td className="py-2 font-mono theme-text-muted">{i.id ? i.id.substring(0, 8) : '—'}</td>
+                    <td className="py-2 theme-text-primary font-semibold">{i.type}</td>
+                    <td className="py-2">
+                      <span className={`chip-${i.severity.toLowerCase()}`}>{i.severity}</span>
+                    </td>
+                    <td className="py-2 text-cs-amber">{(i.affectedZones || []).join(', ')}</td>
+                    <td className="py-2 font-mono theme-text-muted">
+                      {i.createdAt ? new Date(i.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </td>
+                    <td className="py-2 font-mono text-cs-green font-semibold">
+                      {i.status === 'Resolved' && i.updatedAt ? new Date(i.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </td>
+                    <td className="py-2 theme-text-muted">{i.notes || '—'}</td>
+                    <td className="py-2 capitalize font-semibold" style={{ color: i.status === 'Resolved' ? '#1D9E75' : '#E24B4A' }}>{i.status}</td>
+                    <td className="py-2">
+                      {i.status !== 'Resolved' && (
+                        <button 
+                          onClick={() => updateIncidentStatus(i.id, 'Resolved')}
+                          className="px-2 py-1 rounded bg-cs-green/20 text-cs-green border border-cs-green/50 hover:bg-cs-green/30 text-[10px] uppercase font-bold tracking-wider"
+                        >
+                          Resolve
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

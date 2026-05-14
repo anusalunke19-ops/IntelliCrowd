@@ -16,6 +16,17 @@ class Point(BaseModel):
     y: float
 
 
+# ─── Clustering ───────────────────────────────────────────────────────────────
+
+class ClusterInfo(BaseModel):
+    cluster_id: int
+    centroid: Point
+    headcount: int
+    density: float
+    convex_hull: List[List[float]]
+    risk_level: Literal["safe", "dense", "critical"]
+
+
 # ─── Zone Configuration ───────────────────────────────────────────────────────
 
 class ZoneConfig(BaseModel):
@@ -104,6 +115,9 @@ class ZoneMetrics(BaseModel):
     predicted_time_to_critical: Optional[float] = None
     rate_of_change: Optional[float] = None     # %/min
 
+    # ── Crowd clustering (New) ──
+    clusters: List[ClusterInfo] = Field(default_factory=list)
+
 
 # ─── Alerts ───────────────────────────────────────────────────────────────────
 
@@ -187,6 +201,7 @@ class LivePayload(BaseModel):
     detections: List[BoundingBox] = []
     incidents: List[Incident] = []
     predictions: List[dict] = Field(default_factory=list)  # Zone predictions
+    clusters: List[ClusterInfo] = Field(default_factory=list)  # Global clusters
 
 
 # ─── Camera Config ────────────────────────────────────────────────────────────

@@ -29,7 +29,7 @@ export function CrowdDataProvider({ children }) {
           zones: (data.zones || []).map(z => ({
             ...z,
             id: z.zone_id,
-            currentCount: z.people_count,
+            currentCount: z.smoothed_count || z.people_count,
             occupancy: z.occupancy_percent,
             riskScore: z.risk_score,
             densityHistory: (z.density_history || []).map(dp => ({
@@ -43,12 +43,14 @@ export function CrowdDataProvider({ children }) {
             id: i.incident_id,
             affectedZones: i.affected_zones,
             assignedResponder: i.assigned_responder,
-            createdAt: i.created_at
+            createdAt: i.created_at,
+            updatedAt: i.updated_at
           })),
           globalStatus: data.global_status,
           timestamp: data.timestamp,
           heatmapAvailable: data.heatmap_available,
-          detections: data.detections || []
+          detections: data.detections || [],
+          clusters: data.clusters || []
         };
         setState(transformedState);
         setLastKnownAt(null);
@@ -76,8 +78,37 @@ export function CrowdDataProvider({ children }) {
 
   const simulateNetworkLoss = () => {};
   const resumeFeed = () => {};
-  const declareIncident = (data) => console.log("Declare:", data);
-  const updateIncidentStatus = (id, status) => console.log("Update:", id, status);
+  
+  const declareIncident = async (data) => {
+    try {
+      const res = await fetch('http://localhost:8000/api/incidents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Failed to create incident');
+      const inc = await res.json();
+      logAction(`Reported new incident: ${data.type}`);
+      return inc;
+    } catch (err) {
+      console.error(err);
+      return null;
+    }
+  };
+
+  const updateIncidentStatus = async (id, status) => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/incidents/${id}/status?status=${status}`, {
+        method: 'PATCH',
+      });
+      if (!res.ok) throw new Error('Failed to update incident');
+      logAction(`Updated incident ${id.substring(0, 8)} status to ${status}`);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+
   const acknowledgeAlert = async (id) => console.log("Ack:", id);
   const escalateAlert = (id) => console.log("Escalate:", id);
   const resolveAlert = (id) => console.log("Resolve:", id);

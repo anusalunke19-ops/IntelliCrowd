@@ -156,6 +156,19 @@ export default function IncidentPanel() {
               <span className="text-gray-500">Zones:</span> {(inc.affectedZones || []).map(z => ZONE_LABELS[z] || z).join(', ')}
             </div>
 
+            {inc.notes?.includes('SOS triggered by Attendee') ? (
+              <div className="bg-red-500/10 border border-red-500/30 rounded p-2 mb-2 text-xs flex items-start gap-2">
+                <span className="text-xl leading-none">📍</span>
+                <div>
+                  <div className="text-red-400 font-bold mb-0.5">Attendee SOS Request</div>
+                  <div className="text-red-300/80">Location: {(inc.affectedZones || []).map(z => ZONE_LABELS[z] || z).join(', ')}</div>
+                  <div className="text-red-300/80">{inc.notes.split('Contact: ')[1] ? `Emergency Contact: ${inc.notes.split('Contact: ')[1]}` : ''}</div>
+                </div>
+              </div>
+            ) : inc.notes ? (
+              <div className="text-[10px] text-gray-400 mb-2 italic">"{inc.notes}"</div>
+            ) : null}
+
             {/* Status buttons */}
             <div className="flex gap-1.5 mb-2">
               {inc.status === 'Open' && (
@@ -166,7 +179,7 @@ export default function IncidentPanel() {
                   → Responding
                 </button>
               )}
-              {inc.status === 'Responding' && (
+              {inc.status !== 'Resolved' && (
                 <button
                   onClick={() => updateIncidentStatus(inc.id, 'Resolved')}
                   className="text-[10px] px-2 py-0.5 rounded bg-cs-green/20 text-cs-green border border-cs-green/30 hover:bg-cs-green/30"

@@ -2,7 +2,7 @@
  * Attendee — Mobile-first safety companion panel.
  * Horizontal grid layout. Zone metrics pulled from user-defined zones (FootageContext).
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useCrowdData } from '../context/CrowdDataContext.jsx';
 import { useFootage } from '../context/FootageContext.jsx';
 
@@ -126,22 +126,123 @@ function ZoneDetailPanel({ zone }) {
   );
 }
 
-function SOSButton({ onSOS }) {
+function SOSButton({ onSOS, zone, contact, incidents, activeIncidentId, setActiveIncidentId }) {
   const [confirm, setConfirm] = useState(false);
   const [sent, setSent] = useState(false);
 
-  const handleSOS = () => {
+  const audioCtxRef = useRef(null);
+  const oscillatorRef = useRef(null);
+  const lfoRef = useRef(null);
+  const vibrateIntervalRef = useRef(null);
+
+  const stopAlarm = () => {
+    if (oscillatorRef.current) {
+      try { oscillatorRef.current.stop(); } catch(e){}
+      oscillatorRef.current = null;
+    }
+    if (lfoRef.current) {
+      try { lfoRef.current.stop(); } catch(e){}
+      lfoRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close(); } catch(e){}
+      audioCtxRef.current = null;
+    }
+    if (vibrateIntervalRef.current) {
+      clearInterval(vibrateIntervalRef.current);
+      vibrateIntervalRef.current = null;
+    }
+  };
+
+  // Watch for incident status resolving on the dashboard
+  useEffect(() => {
+    if (sent && activeIncidentId) {
+      const inc = incidents.find(i => i.id === activeIncidentId || i.incident_id === activeIncidentId);
+      if (inc && inc.status === 'Resolved') {
+        stopAlarm();
+        setSent(false);
+        setActiveIncidentId(null);
+      }
+    }
+  }, [incidents, activeIncidentId, sent, setActiveIncidentId]);
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => stopAlarm();
+  }, []);
+
+  const handleSOS = async () => {
     setSent(true);
     setConfirm(false);
-    onSOS();
-    setTimeout(() => setSent(false), 5000);
+    const incId = await onSOS();
+    if (incId) setActiveIncidentId(incId);
+    
+    // Play Continuous Siren using AudioContext
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (AudioContext) {
+        const ctx = new AudioContext();
+        audioCtxRef.current = ctx;
+
+        const osc = ctx.createOscillator();
+        const lfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+        const mainGain = ctx.createGain();
+
+        osc.type = 'square';
+        osc.frequency.value = 600;
+
+        lfo.type = 'sine';
+        lfo.frequency.value = 2.5; // sweep 2.5 times a second
+        
+        lfoGain.gain.value = 200; // Sweep between 400 and 800 Hz
+
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.frequency);
+
+        osc.connect(mainGain);
+        mainGain.connect(ctx.destination);
+        
+        mainGain.gain.value = 0.5;
+
+        osc.start();
+        lfo.start();
+
+        oscillatorRef.current = osc;
+        lfoRef.current = lfo;
+      }
+    } catch (e) {
+      console.warn('AudioContext not supported');
+    }
+
+    // Trigger Continuous Vibration
+    if (navigator.vibrate) {
+      // initial
+      navigator.vibrate([500, 200, 500, 200]);
+      vibrateIntervalRef.current = setInterval(() => {
+        navigator.vibrate([500, 200, 500, 200]);
+      }, 1500);
+    }
   };
 
   if (sent) return (
     <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-5 text-center">
       <div className="text-4xl mb-2">🆘</div>
-      <div className="text-red-700 font-bold text-lg">SOS Sent!</div>
-      <div className="text-red-600 text-sm mt-1">Security is being notified. Stay where you are.</div>
+      <div className="text-red-700 font-bold text-lg mb-4">SOS Sent! Security Notified.</div>
+      
+      {/* Mini map container */}
+      <div className="bg-gray-100 rounded-xl p-3 mb-4 h-32 flex flex-col items-center justify-center border border-gray-200">
+         <div className="text-2xl mb-1">📍</div>
+         <div className="text-gray-700 font-semibold text-sm">Location Shared:</div>
+         <div className="text-gray-500 text-xs">{zone?.label || 'Current Location'}</div>
+      </div>
+      
+      <div className="bg-white rounded-xl p-3 text-left border border-red-100 mb-4">
+        <div className="text-gray-500 text-xs mb-1">Emergency Contact Notified:</div>
+        <div className="font-bold text-gray-800">{contact || 'None saved'}</div>
+      </div>
+
+      <button onClick={() => { stopAlarm(); setSent(false); setActiveIncidentId(null); }} className="w-full py-2 rounded-lg bg-gray-200 text-gray-700 font-semibold text-sm">Dismiss</button>
     </div>
   );
 
@@ -172,9 +273,17 @@ function SOSButton({ onSOS }) {
 // ─── Main Attendee Page ──────────────────────────────────────────────────────
 
 export default function Attendee() {
-  const { zones, alerts, logAction } = useCrowdData();
+  const { zones, alerts, logAction, declareIncident, incidents } = useCrowdData();
   const { userZones } = useFootage();
   const [selectedIdx, setSelectedIdx] = useState(0);
+  
+  // Emergency Contact State
+  const [contact, setContact] = useState('');
+  const [isEditingContact, setIsEditingContact] = useState(false);
+  const [tempContact, setTempContact] = useState('');
+
+  // Track active incident ID
+  const [activeIncidentId, setActiveIncidentId] = useState(null);
 
   // Use user-defined zones from FootageContext if available; otherwise fall back to backend zones
   const displayZones = userZones.length > 0
@@ -244,8 +353,65 @@ export default function Attendee() {
         {/* Selected zone detail */}
         <ZoneDetailPanel zone={selectedZone} />
 
+        {/* Emergency Contact */}
+        <div className="card rounded-2xl p-5 mb-4 border border-blue-400/30 bg-blue-500/5">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="theme-text-primary font-semibold text-sm">📞 Emergency Contact</h2>
+            {!isEditingContact && (
+              <button 
+                onClick={() => { setTempContact(contact); setIsEditingContact(true); }}
+                className="text-xs text-blue-500 hover:text-blue-400 font-semibold"
+              >
+                {contact ? 'Edit' : '+ Add Contact'}
+              </button>
+            )}
+          </div>
+          
+          {isEditingContact ? (
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                placeholder="e.g. John Doe (555-0198)" 
+                value={tempContact} 
+                onChange={e => setTempContact(e.target.value)}
+                className="flex-1 bg-transparent border theme-border rounded px-3 py-1.5 text-sm theme-text-primary focus:outline-none focus:border-blue-500"
+              />
+              <button 
+                onClick={() => { setContact(tempContact); setIsEditingContact(false); }}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-semibold"
+              >
+                Save
+              </button>
+            </div>
+          ) : (
+            <div className="theme-text-muted text-sm">
+              {contact || 'No emergency contact saved. Add one for SOS notifications.'}
+            </div>
+          )}
+        </div>
+
         {/* SOS Button */}
-        <SOSButton onSOS={() => logAction('🆘 SOS triggered by attendee')} />
+        <SOSButton 
+          zone={selectedZone}
+          contact={contact}
+          incidents={incidents}
+          activeIncidentId={activeIncidentId}
+          setActiveIncidentId={setActiveIncidentId}
+          onSOS={async () => {
+            logAction('🆘 SOS triggered by attendee');
+            if (declareIncident) {
+              const inc = await declareIncident({
+                type: 'Medical',
+                severity: 'P1',
+                assigned_responder: 'Unassigned',
+                affected_zones: [selectedZone?.id || 'Unknown'],
+                notes: `SOS triggered by Attendee from ${selectedZone?.label || 'Unknown'} area. Contact: ${contact || 'None'}`
+              });
+              return inc?.incident_id || inc?.id;
+            }
+            return null;
+          }} 
+        />
 
         {/* Exits & Medical — horizontal two-column layout */}
         <div className="grid grid-cols-2 gap-4">

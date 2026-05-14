@@ -148,6 +148,7 @@ async def pipeline_loop():
                 detections=frame.boxes,
                 incidents=list(_incidents.values()),
                 predictions=predictions_summary,
+                clusters=detector._latest_clusters,
             )
             _latest_metrics = metrics
             _latest_payload = payload

@@ -10,7 +10,7 @@ import VenueMap from '../components/VenueMap.jsx';
 import AlertFeed from '../components/AlertFeed.jsx';
 import RiskPanel from '../components/RiskPanel.jsx';
 import ZoneList from '../components/ZoneList.jsx';
-
+import IncidentPanel from '../components/IncidentPanel.jsx';
 // ─── Live Clock ────────────────────────────────────────────────────────────
 
 function LiveClock() {
@@ -110,7 +110,7 @@ function QuickActions({ onAction, auditLog }) {
 
 // ─── Tab selector for right panel ────────────────────────────────────────
 
-const TABS = ['Alerts', 'Risk'];
+const TABS = ['Alerts', 'Incidents', 'Risk'];
 
 // ─── Dashboard Page ───────────────────────────────────────────────────────
 
@@ -216,6 +216,7 @@ export default function Dashboard() {
 
           <div className="flex-1 overflow-hidden p-3">
             {rightTab === 'Alerts'  && <AlertFeed />}
+            {rightTab === 'Incidents' && <IncidentPanel />}
             {rightTab === 'Risk'    && <RiskPanel zones={zones} />}
           </div>
         </aside>

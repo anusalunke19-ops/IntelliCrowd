@@ -20,8 +20,9 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 import numpy as np
-from app.schemas import BoundingBox, DetectionFrame
+from app.schemas import BoundingBox, DetectionFrame, ClusterInfo
 from app.csrnet_engine import CSRNetEngine
+from app.cluster_engine import ClusterEngine
 
 # ─── Try importing optional heavy deps ───────────────────────────────────────
 
@@ -348,6 +349,8 @@ class VideoDetector:
         self._recent_count = 0       # rolling detection count for dynamic conf
         self._count_history: deque = deque(maxlen=10)
         self._hybrid_csrnet_count = 0.0  # latest CSRNet density estimate
+        self._cluster_engine = ClusterEngine(eps=0.08, min_samples=3)
+        self._latest_clusters: List[ClusterInfo] = []
 
         if source and CV2_AVAILABLE:
             try:
@@ -458,50 +461,67 @@ class VideoDetector:
         # ── Refinement: Dynamic confidence threshold ─────────────────────
         conf_threshold = dynamic_confidence(self._recent_count)
 
-        # ── YOLO detection with ByteTrack ────────────────────────────────
-        results = self._model.track(
-            detection_frame,
-            classes=[0],           # person class only
-            imgsz=1280,
-            conf=conf_threshold,   # dynamic confidence
-            iou=0.7,
-            persist=True,
-            tracker="bytetrack.yaml",  # explicit ByteTrack tracker
-            verbose=False,
-        )[0]
+        raw_boxes = []
+
+        if self._recent_count > 30:
+            # ── Dense Mode: Tiled Inference (Head focused) ───────────────
+            # Lower confidence, split into 4 tiles
+            tile_h, tile_w = int(H * 0.6), int(W * 0.6)
+            offsets = [(0, 0), (0, W - tile_w), (H - tile_h, 0), (H - tile_h, W - tile_w)]
+            all_xyxy = []
+            all_conf = []
+            
+            for y_off, x_off in offsets:
+                tile = detection_frame[y_off:y_off+tile_h, x_off:x_off+tile_w]
+                results = self._model.predict(
+                    tile,
+                    classes=[0],
+                    conf=max(0.25, conf_threshold - 0.15),
+                    imgsz=640,
+                    iou=0.8, # highly overlap tolerant NMS for dense crowds
+                    verbose=False
+                )[0]
+                for box in results.boxes:
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    all_xyxy.append([x1 + x_off, y1 + y_off, x2 + x_off, y2 + y_off])
+                    all_conf.append(float(box.conf[0]))
+            
+            if all_xyxy:
+                import torch
+                from torchvision.ops import nms
+                boxes_tensor = torch.tensor(all_xyxy, dtype=torch.float32)
+                scores_tensor = torch.tensor(all_conf, dtype=torch.float32)
+                keep_indices = nms(boxes_tensor, scores_tensor, iou_threshold=0.8).tolist()
+                for idx in keep_indices:
+                    raw_boxes.append((*all_xyxy[idx], all_conf[idx], None))
+        else:
+            # ── Sparse Mode: Standard YOLO with Tracking ─────────────────
+            results = self._model.track(
+                detection_frame,
+                classes=[0],
+                imgsz=1280,
+                conf=conf_threshold,
+                iou=0.7,
+                persist=True,
+                tracker="bytetrack.yaml",
+                verbose=False,
+            )[0]
+            for i, box in enumerate(results.boxes):
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                tid = int(box.id[0]) if box.id is not None else i
+                raw_boxes.append((x1, y1, x2, y2, float(box.conf[0]), tid))
 
         boxes: List[BoundingBox] = []
         raw_yolo_count = 0
 
-        for i, box in enumerate(results.boxes):
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
-            conf = float(box.conf[0])
-            tid = int(box.id[0]) if box.id is not None else i
-
+        for x1, y1, x2, y2, conf, tid in raw_boxes:
             # ── Refinement: Motion filtering ─────────────────────────────
-            # Skip detections in regions with no motion (static objects)
             if not self._motion_filter.is_moving(int(x1), int(y1), int(x2), int(y2)):
                 continue
 
-            # ── Refinement: Perspective scaling ──────────────────────────
-            # y_center normalized: 0=top (far), 1=bottom (near)
-            y_center_norm = ((y1 + y2) / 2) / H
-            p_scale = perspective_scale(y_center_norm)
-
-            # Adjust bounding box dimensions by perspective (for area calc)
-            # but keep position unchanged for zone assignment
-            box_w = (x2 - x1) * p_scale
-            box_h = (y2 - y1) * p_scale
-
-            raw_yolo_count += 1
-
             boxes.append(BoundingBox(
-                x1=x1 / W,
-                y1=y1 / H,
-                x2=x2 / W,
-                y2=y2 / H,
-                confidence=conf,
-                track_id=tid,
+                x1=x1 / W, y1=y1 / H, x2=x2 / W, y2=y2 / H,
+                confidence=conf, track_id=tid,
             ))
 
         # ── Refinement: Hybrid counting ──────────────────────────────────
@@ -510,6 +530,9 @@ class VideoDetector:
         # Here we store the hybrid metadata for the zone engine to use
         self._recent_count = len(boxes)
         self._count_history.append(len(boxes))
+
+        # ── Refinement: Crowd Clustering ─────────────────────────────────
+        self._latest_clusters = self._cluster_engine.cluster_detections(boxes)
 
         self._latest_frame = DetectionFrame(
             frame_id=0,
@@ -577,6 +600,26 @@ class VideoDetector:
                         x2 = int(box.x2 * W)
                         y2 = int(box.y2 * H)
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 120), 2)
+                        
+                if self._latest_clusters:
+                    for c in self._latest_clusters:
+                        # Color coding based on risk
+                        color = (0, 255, 0) # Green
+                        if c.risk_level == "dense":
+                            color = (0, 255, 255) # Yellow
+                        elif c.risk_level == "critical":
+                            color = (0, 0, 255) # Red
+                            
+                        # Draw Convex Hull
+                        pts = np.array([[int(p[0]*W), int(p[1]*H)] for p in c.convex_hull], np.int32)
+                        pts = pts.reshape((-1, 1, 2))
+                        cv2.polylines(frame, [pts], True, color, 3)
+                        
+                        # Draw centroid and headcount
+                        cx, cy = int(c.centroid.x * W), int(c.centroid.y * H)
+                        cv2.circle(frame, (cx, cy), 5, color, -1)
+                        cv2.putText(frame, f"Cluster: {c.headcount}", (cx - 20, cy - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
             else:
                 return None
         else:
