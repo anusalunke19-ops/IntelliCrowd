@@ -65,9 +65,9 @@ HYBRID_CSRNET_WEIGHT = 0.6         # weight for CSRNet in blended mode
 
 # ─── Dynamic confidence mapping ─────────────────────────────────────────────
 
-CONF_SPARSE = 0.30    # ≤ 15 detections
-CONF_MEDIUM = 0.40    # 16–40 detections
-CONF_DENSE  = 0.50    # > 40 detections
+CONF_SPARSE = 0.15    # ≤ 15 detections
+CONF_MEDIUM = 0.20    # 16–40 detections
+CONF_DENSE  = 0.25    # > 40 detections
 
 # ─── Motion filter thresholds ────────────────────────────────────────────────
 
@@ -154,31 +154,30 @@ class SimulatedCrowdEngine:
         return time.time() - self._start_time
 
     def _inject_events(self):
-        elapsed = self._elapsed()
-        if 55 <= elapsed < 65:
-            # DENSITY_CRITICAL on stage_front
-            bounds = self.ZONE_BOUNDS["stage_front"]
-            while len(self._persons["stage_front"]) < 85:
-                self._persons["stage_front"].append(
-                    SimulatedPerson(self._next_id, bounds)
-                )
-                self._next_id += 1
-        if 115 <= elapsed < 130:
-            # SURGE on gate_a
+        elapsed = self._elapsed() % 60  # Loop simulation events every 60 seconds
+        
+        # Restore normal speed if not in stampede window
+        if not (15 <= elapsed < 30):
+            for p in self._persons["stage_front"]:
+                if abs(p.vx) > 2.5:
+                    p.vx = random.uniform(-1.5, 1.5)
+                    p.vy = random.uniform(-1.5, 1.5)
+        
+        if 15 <= elapsed < 30:
+            # STAMPEDE on stage_front (High velocity)
+            for p in self._persons["stage_front"]:
+                # Force high speed
+                if abs(p.vx) < 2.5:
+                    p.vx = random.uniform(2.5, 4.5) * (1 if p.vx > 0 else -1)
+                    p.vy = random.uniform(2.5, 4.5) * (1 if p.vy > 0 else -1)
+
+        if 35 <= elapsed < 45:
+            # DENSITY_CRITICAL / SURGE on gate_a
             bounds = self.ZONE_BOUNDS["gate_a"]
-            target = int(self.INITIAL_COUNTS["gate_a"] * 1.3)
+            target = int(self.INITIAL_COUNTS["gate_a"] * 1.5)
             while len(self._persons["gate_a"]) < target:
                 self._persons["gate_a"].append(SimulatedPerson(self._next_id, bounds))
                 self._next_id += 1
-        if 175 <= elapsed < 200:
-            # COUNTER_FLOW on corridor_1
-            for p in self._persons["corridor_1"]:
-                p.vx *= -1
-        if 235 <= elapsed < 260:
-            # BOTTLENECK on queue_lane
-            for p in self._persons["queue_lane"]:
-                p.vx *= 0.1
-                p.vy *= 0.1
 
     def next_frame(self, camera_id: str = "cam_sim_01") -> DetectionFrame:
         self._inject_events()
@@ -303,7 +302,7 @@ class MotionFilter:
             return True
         region = self._motion_mask[y1c:y2c, x1c:x2c]
         motion_ratio = np.count_nonzero(region) / max(1, region.size)
-        return motion_ratio > 0.15  # at least 15% of box has motion
+        return motion_ratio > 0.01  # extremely lenient, allow almost any static person
 
 
 # ─── Real video pipeline (refined) ──────────────────────────────────────────
@@ -444,12 +443,10 @@ class VideoDetector:
         # ── Refinement: Motion filter update ─────────────────────────────
         motion_mask = self._motion_filter.update(frame)
 
-        # ── Refinement: ROI masking ──────────────────────────────────────
-        # Create a masked copy for YOLO inference — black out non-zone areas
+        # ── ROI Masking (Removed) ────────────────────────────────────────
+        # We let YOLO detect on the full frame. 
+        # The ZoneEngine handles filtering points that fall outside polygons.
         detection_frame = frame.copy()
-        if self._roi_mask is not None:
-            roi_resized = cv2.resize(self._roi_mask, (W, H))
-            detection_frame[roi_resized == 0] = 0
 
         # ── Run CSRNet density estimation ────────────────────────────────
         self._latest_density_map = self._csrnet.predict_density(frame)
@@ -463,7 +460,7 @@ class VideoDetector:
 
         raw_boxes = []
 
-        if self._recent_count > 30:
+        if True:  # Forced Tiled Inference for small crowd members
             # ── Dense Mode: Tiled Inference (Head focused) ───────────────
             # Lower confidence, split into 4 tiles
             tile_h, tile_w = int(H * 0.6), int(W * 0.6)
@@ -476,7 +473,7 @@ class VideoDetector:
                 results = self._model.predict(
                     tile,
                     classes=[0],
-                    conf=max(0.25, conf_threshold - 0.15),
+                    conf=max(0.05, conf_threshold - 0.20), # Extremely low conf to catch distant heads
                     imgsz=640,
                     iou=0.8, # highly overlap tolerant NMS for dense crowds
                     verbose=False
@@ -515,10 +512,10 @@ class VideoDetector:
         raw_yolo_count = 0
 
         for x1, y1, x2, y2, conf, tid in raw_boxes:
-            # ── Refinement: Motion filtering ─────────────────────────────
-            if not self._motion_filter.is_moving(int(x1), int(y1), int(x2), int(y2)):
-                continue
-
+            # ── Refinement: Motion filtering (Disabled for safety) ───────
+            # People in queues stand still. Filtering by motion drops too many valid detections.
+            # We keep the tracker to handle stationary IDs instead.
+            
             boxes.append(BoundingBox(
                 x1=x1 / W, y1=y1 / H, x2=x2 / W, y2=y2 / H,
                 confidence=conf, track_id=tid,

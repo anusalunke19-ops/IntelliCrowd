@@ -303,8 +303,14 @@ class ZoneEngine:
         # ── Group tracks per zone ────────────────────────────────────────
         zone_tracks: Dict[str, List[Tuple[int, float, float]]] = {zid: [] for zid in self.zones}
 
+        # Frame dimensions for converting normalized coords → pixel coords
+        FRAME_W, FRAME_H = 1280, 720
+
         for i, box in enumerate(frame.boxes):
-            cx, cy = centroid_of_box(box)
+            cx_norm, cy_norm = centroid_of_box(box)
+            # Scale normalized (0–1) coordinates to pixel space to match zone polygons
+            cx = cx_norm * FRAME_W
+            cy = cy_norm * FRAME_H
             tid = box.track_id if box.track_id is not None else -(i + 1)
             for zone_id, state in self.zones.items():
                 if point_in_polygon(cx, cy, state.config.polygon):

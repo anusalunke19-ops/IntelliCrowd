@@ -149,6 +149,17 @@ class AlertEngine:
                         "Dispatch stewards to monitor cluster and ensure safety",
                     ))
 
+            # ── STAMPEDE / PANIC ──────────────────────────────────────────
+            # Advanced behavioral heuristic: High crowd speed + sufficient density = panic
+            if m.avg_speed > 1.2 and m.people_count > 5:
+                key = f"STAMPEDE:{zid}"
+                if not self._suppress(key, 10):  # Very short cooldown for emergency alerts
+                    new_alerts.append(self._emit(
+                        "STAMPEDE_DETECTED", zid, "P1",
+                        f"🚨 EMERGENCY: Panic/Stampede behavior detected in {m.label} (Velocity: {m.avg_speed:.2f} m/s)",
+                        "IMMEDIATE ACTION REQUIRED: Deploy medical response, open all emergency exits.",
+                    ))
+
             # ── PREDICTIVE_WARNING (Refinement #10) ──────────────────────
             if prediction_engine and prediction_engine.is_imminent_critical(zid, PREDICTIVE_WARNING_SECS):
                 pred = prediction_engine.get_prediction(zid)

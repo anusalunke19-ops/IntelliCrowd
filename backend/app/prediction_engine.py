@@ -5,6 +5,7 @@ Forecasts time-to-critical and rate-of-change per zone.
 """
 from __future__ import annotations
 import time
+import math
 from collections import defaultdict, deque
 from typing import Dict, Optional, Tuple
 
@@ -90,16 +91,27 @@ class PredictionEngine:
 
         t0 = times[0]
         xs = [(t - t0) for t in times]  # seconds from start
-        x_mean = sum(xs) / n
-        y_mean = sum(occs) / n
+        # Weight recent data points more heavily (exponential decay weighting)
+        weights = [math.exp(0.2 * (i - n)) for i in range(n)]
+        sum_weights = sum(weights)
+        
+        x_mean = sum(xs[i] * weights[i] for i in range(n)) / sum_weights
+        y_mean = sum(occs[i] * weights[i] for i in range(n)) / sum_weights
 
-        numerator = sum((xs[i] - x_mean) * (occs[i] - y_mean) for i in range(n))
-        denominator = sum((xs[i] - x_mean) ** 2 for i in range(n))
+        numerator = sum(weights[i] * (xs[i] - x_mean) * (occs[i] - y_mean) for i in range(n))
+        denominator = sum(weights[i] * (xs[i] - x_mean) ** 2 for i in range(n))
 
         if denominator < 1e-9:
             slope = 0.0
         else:
             slope = numerator / denominator  # occupancy-% per second
+
+        # ── Acceleration Factor (Second Derivative) ─────────────────────
+        # If the crowd is suddenly surging faster than before, apply a momentum multiplier
+        if n >= 10:
+            recent_slope = (occs[-1] - occs[-5]) / max(0.1, xs[-1] - xs[-5])
+            if recent_slope > slope and recent_slope > 0:
+                slope = (slope * 0.4) + (recent_slope * 0.6)
 
         rate_per_minute = round(slope * 60, 2)
 

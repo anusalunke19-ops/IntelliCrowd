@@ -129,6 +129,7 @@ AlertType = Literal[
     "CROWD_STOP",
     "CLUSTER_DETECTED",
     "PREDICTIVE_WARNING",
+    "STAMPEDE_DETECTED",
 ]
 
 AlertSeverity = Literal["P1", "P2", "P3"]
