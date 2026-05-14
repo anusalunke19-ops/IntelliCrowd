@@ -1,0 +1,264 @@
+"""
+IntelliCrowd — Detection Module
+Handles person detection via YOLOv8 or simulated crowd data.
+Falls back to simulation mode automatically if YOLO/video unavailable.
+"""
+from __future__ import annotations
+import random
+import time
+import math
+from datetime import datetime, timezone
+from typing import List, Optional, Tuple
+from app.schemas import BoundingBox, DetectionFrame
+
+# ─── Try importing optional heavy deps ───────────────────────────────────────
+
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    print("[detection] OpenCV not available — simulation mode only")
+
+try:
+    from ultralytics import YOLO
+    YOLO_AVAILABLE = True
+except ImportError:
+    YOLO_AVAILABLE = False
+    print("[detection] Ultralytics not available — simulation mode only")
+
+
+# ─── Frame dimensions (matches zone config pixel space) ──────────────────────
+
+FRAME_W = 1280
+FRAME_H = 720
+
+
+# ─── Simulated crowd behavior ─────────────────────────────────────────────────
+
+class SimulatedPerson:
+    """A simulated person with a position and velocity."""
+
+    def __init__(self, person_id: int, zone_bounds: Tuple[float, float, float, float]):
+        self.id = person_id
+        xmin, ymin, xmax, ymax = zone_bounds
+        self.x = random.uniform(xmin + 10, xmax - 10)
+        self.y = random.uniform(ymin + 10, ymax - 10)
+        self.vx = random.uniform(-2, 2)
+        self.vy = random.uniform(-2, 2)
+        self.bounds = zone_bounds
+        self.w = random.randint(20, 35)
+        self.h = random.randint(40, 65)
+
+    def step(self):
+        self.x += self.vx + random.gauss(0, 0.3)
+        self.y += self.vy + random.gauss(0, 0.3)
+        xmin, ymin, xmax, ymax = self.bounds
+        if self.x < xmin + 5 or self.x > xmax - 5:
+            self.vx *= -1
+        if self.y < ymin + 5 or self.y > ymax - 5:
+            self.vy *= -1
+        self.x = max(xmin + 5, min(xmax - 5, self.x))
+        self.y = max(ymin + 5, min(ymax - 5, self.y))
+
+    def to_box(self) -> BoundingBox:
+        return BoundingBox(
+            x1=self.x - self.w / 2,
+            y1=self.y - self.h / 2,
+            x2=self.x + self.w / 2,
+            y2=self.y + self.h / 2,
+            confidence=round(random.uniform(0.72, 0.99), 3),
+            track_id=self.id,
+        )
+
+
+class SimulatedCrowdEngine:
+    """
+    Generates realistic-looking crowd simulation data.
+    Each zone has a pool of persons that move around within that zone's bounding box.
+    """
+
+    ZONE_BOUNDS: dict[str, Tuple[float, float, float, float]] = {
+        "gate_a":       (50,   30,  340,  200),
+        "gate_b":       (940,  30, 1230,  200),
+        "corridor_1":   (340,  80,  940,  200),
+        "exit_a":       (50,  520,  340,  690),
+        "stage_front":  (280, 250,  1000, 490),
+        "queue_lane":   (1000, 200, 1230, 520),
+    }
+
+    INITIAL_COUNTS: dict[str, int] = {
+        "gate_a": 18,
+        "gate_b": 12,
+        "corridor_1": 25,
+        "exit_a": 8,
+        "stage_front": 60,
+        "queue_lane": 22,
+    }
+
+    def __init__(self):
+        self._persons: dict[str, List[SimulatedPerson]] = {}
+        self._next_id = 1
+        self._frame = 0
+        self._start_time = time.time()
+
+        for zone_id, bounds in self.ZONE_BOUNDS.items():
+            count = self.INITIAL_COUNTS.get(zone_id, 10)
+            self._persons[zone_id] = [
+                SimulatedPerson(self._next_id + i, bounds) for i in range(count)
+            ]
+            self._next_id += count
+
+    def _elapsed(self) -> float:
+        return time.time() - self._start_time
+
+    def _inject_events(self):
+        elapsed = self._elapsed()
+        if 55 <= elapsed < 65:
+            # DENSITY_CRITICAL on stage_front
+            bounds = self.ZONE_BOUNDS["stage_front"]
+            while len(self._persons["stage_front"]) < 85:
+                self._persons["stage_front"].append(
+                    SimulatedPerson(self._next_id, bounds)
+                )
+                self._next_id += 1
+        if 115 <= elapsed < 130:
+            # SURGE on gate_a
+            bounds = self.ZONE_BOUNDS["gate_a"]
+            target = int(self.INITIAL_COUNTS["gate_a"] * 1.3)
+            while len(self._persons["gate_a"]) < target:
+                self._persons["gate_a"].append(SimulatedPerson(self._next_id, bounds))
+                self._next_id += 1
+        if 175 <= elapsed < 200:
+            # COUNTER_FLOW on corridor_1
+            for p in self._persons["corridor_1"]:
+                p.vx *= -1
+        if 235 <= elapsed < 260:
+            # BOTTLENECK on queue_lane
+            for p in self._persons["queue_lane"]:
+                p.vx *= 0.1
+                p.vy *= 0.1
+
+    def next_frame(self, camera_id: str = "cam_sim_01") -> DetectionFrame:
+        self._inject_events()
+        self._frame += 1
+        all_boxes: List[BoundingBox] = []
+        for zone_persons in self._persons.values():
+            for p in zone_persons:
+                p.step()
+                all_boxes.append(p.to_box())
+        return DetectionFrame(
+            frame_id=self._frame,
+            timestamp=datetime.now(timezone.utc),
+            camera_id=camera_id,
+            boxes=all_boxes,
+        )
+
+
+# ─── Real video pipeline (optional) ──────────────────────────────────────────
+
+class VideoDetector:
+    """
+    Real video detection using OpenCV + YOLOv8.
+    Falls back to SimulatedCrowdEngine if unavailable.
+    """
+
+    def __init__(
+        self,
+        source: Optional[str] = None,
+        model_path: str = "yolov8n.pt",
+        fps: int = 5,
+        camera_id: str = "cam_01",
+    ):
+        self.camera_id = camera_id
+        self.fps = fps
+        self._sim = SimulatedCrowdEngine()
+        self._real = False
+        self._cap = None
+        self._model = None
+
+        if source and CV2_AVAILABLE:
+            try:
+                src = int(source) if source.isdigit() else source
+                cap = cv2.VideoCapture(src)
+                if cap.isOpened():
+                    self._cap = cap
+                    if YOLO_AVAILABLE:
+                        try:
+                            self._model = YOLO(model_path)
+                            self._real = True
+                            print(f"[detection] Real pipeline active: {source}")
+                        except Exception as e:
+                            print(f"[detection] YOLO load failed: {e} — using simulation")
+                    else:
+                        print("[detection] YOLO not available — using simulation")
+                else:
+                    print(f"[detection] Cannot open source {source} — using simulation")
+            except Exception as e:
+                print(f"[detection] Source error: {e} — using simulation")
+        else:
+            print("[detection] No source configured — simulation mode")
+
+    def next_frame(self) -> DetectionFrame:
+        if self._real and self._cap and self._model:
+            return self._read_real_frame()
+        return self._sim.next_frame(self.camera_id)
+
+    def _read_real_frame(self) -> DetectionFrame:
+        assert self._cap and self._model
+        ret, frame = self._cap.read()
+        if not ret:
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, frame = self._cap.read()
+        if not ret:
+            return self._sim.next_frame(self.camera_id)
+
+        results = self._model(frame, classes=[0], verbose=False)[0]  # class 0 = person
+        boxes: List[BoundingBox] = []
+        for i, box in enumerate(results.boxes):
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            conf = float(box.conf[0])
+            tid = int(box.id[0]) if box.id is not None else i
+            boxes.append(BoundingBox(x1=x1, y1=y1, x2=x2, y2=y2, confidence=conf, track_id=tid))
+
+        return DetectionFrame(
+            frame_id=0,
+            timestamp=datetime.now(timezone.utc),
+            camera_id=self.camera_id,
+            boxes=boxes,
+        )
+
+    def get_annotated_frame(self) -> Optional[bytes]:
+        """Return a JPEG-encoded annotated frame (for /api/frame/latest)."""
+        if not CV2_AVAILABLE:
+            return None
+        if self._real and self._cap:
+            ret, frame = self._cap.read()
+            if not ret:
+                return None
+        else:
+            frame = self._create_sim_frame()
+        if frame is None:
+            return None
+        _, buf = cv2.imencode(".jpg", frame)
+        return buf.tobytes()
+
+    def _create_sim_frame(self):
+        """Draw a simulated annotated frame."""
+        if not CV2_AVAILABLE:
+            return None
+        import numpy as np
+        frame = np.zeros((FRAME_H, FRAME_W, 3), dtype="uint8")
+        frame[:] = (20, 20, 30)
+        for zone_id, persons in self._sim._persons.items():
+            for p in persons:
+                x1 = int(p.x - p.w / 2)
+                y1 = int(p.y - p.h / 2)
+                x2 = int(p.x + p.w / 2)
+                y2 = int(p.y + p.h / 2)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 120), 1)
+        return frame
+
+    def release(self):
+        if self._cap:
+            self._cap.release()

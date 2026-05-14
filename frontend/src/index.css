@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: #0A0A0F;
+    color: #fff;
+  }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: #12121A; }
+  ::-webkit-scrollbar-thumb { background: #2A2A3A; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3A3A4A; }
+}
+
+@layer components {
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Severity chips */
+  .chip-p1 { @apply bg-cs-red/20 text-cs-red border border-cs-red/40 px-2 py-0.5 rounded text-xs font-mono font-semibold tracking-wider; }
+  .chip-p2 { @apply bg-cs-amber/20 text-cs-amber border border-cs-amber/40 px-2 py-0.5 rounded text-xs font-mono font-semibold tracking-wider; }
+  .chip-p3 { @apply bg-cs-blue/20 text-cs-blue border border-cs-blue/40 px-2 py-0.5 rounded text-xs font-mono font-semibold tracking-wider; }
+
+  /* Risk pills */
+  .pill-safe     { @apply bg-cs-green/20 text-cs-green border border-cs-green/40 px-2 py-0.5 rounded-full text-xs font-semibold; }
+  .pill-warning  { @apply bg-cs-amber/20 text-cs-amber border border-cs-amber/40 px-2 py-0.5 rounded-full text-xs font-semibold; }
+  .pill-critical { @apply bg-cs-red/20 text-cs-red border border-cs-red/40 px-2 py-0.5 rounded-full text-xs font-semibold; }
+
+  /* Cards */
+  .card { @apply bg-cs-surface border border-cs-border rounded-lg; }
+  .card-sm { @apply bg-cs-surface border border-cs-border rounded; }
+
+  /* Buttons */
+  .btn-primary { @apply bg-cs-amber text-cs-bg font-semibold px-4 py-2 rounded hover:bg-amber-400 transition-colors text-sm; }
+  .btn-ghost   { @apply border border-cs-border text-gray-300 px-3 py-1.5 rounded hover:bg-white/5 transition-colors text-sm; }
+  .btn-danger  { @apply bg-cs-red/20 text-cs-red border border-cs-red/40 px-3 py-1.5 rounded hover:bg-cs-red/30 transition-colors text-sm font-semibold; }
+
+  /* Glow effects */
+  .glow-amber { box-shadow: 0 0 20px rgba(239,159,39,0.15); }
+  .glow-red   { box-shadow: 0 0 20px rgba(226,75,74,0.20); }
+  .glow-green { box-shadow: 0 0 20px rgba(29,158,117,0.15); }
+}

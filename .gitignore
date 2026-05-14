@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+*.local
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+backend/videos/*.mp4
+backend/videos/*.avi
+*.pt
+*.db
+.DS_Store
+Thumbs.db
