@@ -8,22 +8,23 @@ import {
   CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { useCrowdData } from '../context/CrowdDataContext.jsx';
+import ZoneDensityChart from '../components/ZoneDensityChart.jsx';
 
 // ─── Simulated event timeline data ───────────────────────────────────────
 
 const TIMELINE_LABELS = ['18:00','18:30','19:00','19:30','20:00','20:30','21:00','21:30','22:00'];
 
 function buildChartData(zones) {
-  // Use real history if available, otherwise simulate
+  // Use real history if available
   return TIMELINE_LABELS.map((label, i) => {
     const row = { time: label };
     const topZones = zones.slice(0, 6);
     topZones.forEach(z => {
-      const histIdx = Math.floor((z.history?.length || 1) * (i / TIMELINE_LABELS.length));
-      const histCount = z.history?.[histIdx]?.count ?? z.currentCount;
-      const occ = Math.round((histCount / z.capacity) * 100);
-      // Add small variance for visual interest
-      row[z.label || z.id] = Math.max(10, Math.min(100, occ + Math.round(Math.sin(i + z.capacity) * 8)));
+      const history = z.densityHistory || [];
+      const histIdx = Math.floor(history.length * (i / TIMELINE_LABELS.length));
+      const histPoint = history[histIdx];
+      const occ = histPoint ? Math.round(histPoint.occupancyPercent) : Math.round((z.currentCount / z.capacity) * 100);
+      row[z.label || z.id] = occ;
     });
     return row;
   });
@@ -32,13 +33,14 @@ function buildChartData(zones) {
 function buildHeadcountTimeline(zones) {
   return TIMELINE_LABELS.map((label, i) => {
     const total = zones.reduce((sum, z) => {
-      const histIdx = Math.floor((z.history?.length || 1) * (i / TIMELINE_LABELS.length));
-      const histCount = z.history?.[histIdx]?.count ?? z.currentCount;
+      const history = z.densityHistory || [];
+      const histIdx = Math.floor(history.length * (i / TIMELINE_LABELS.length));
+      const histCount = history[histIdx]?.count ?? z.currentCount;
       return sum + histCount;
     }, 0);
     return {
       time: label,
-      total: total + Math.round(Math.sin(i * 1.3) * 30),
+      total: total,
     };
   });
 }
@@ -120,9 +122,12 @@ function exportReport({ zones, alerts, incidents }) {
   const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
+  a.style.display = 'none';
   a.href = url;
   a.download = `intellicrowd-report-${new Date().toISOString().slice(0,10)}.txt`;
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
@@ -274,6 +279,21 @@ export default function Analytics() {
             </table>
           </div>
         )}
+      </div>
+
+      {/* Zone Density Timelines */}
+      <div className="card p-5">
+        <h2 className="theme-text-primary font-semibold mb-4">Zone Density Timelines</h2>
+        <div className="space-y-6">
+          {zones.map(zone => (
+            <div key={zone.id} className="border-t theme-border pt-4">
+              <h3 className="font-semibold text-sm theme-text-primary mb-2">
+                {zone.label || zone.id} <span className="text-gray-500 font-mono text-xs font-normal ml-2">Capacity: {zone.capacity}</span>
+              </h3>
+              <ZoneDensityChart zone={zone} />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

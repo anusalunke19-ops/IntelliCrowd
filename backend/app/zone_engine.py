@@ -7,9 +7,10 @@ import json
 import math
 from collections import deque
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
-from app.schemas import BoundingBox, DetectionFrame, MovementVector, ZoneConfig
+from app.schemas import BoundingBox, DetectionFrame, MovementVector, ZoneConfig, DensityPoint
 
 # ─── Load zone config ─────────────────────────────────────────────────────────
 
@@ -97,6 +98,7 @@ class ZoneState:
         # Rolling history: each entry is a list of TrackHistory in zone
         self.frame_counts: deque[int] = deque(maxlen=HISTORY_LEN)
         self.active_tracks: Dict[int, TrackHistory] = {}
+        self.density_history: deque[DensityPoint] = deque(maxlen=60)
 
     def update(self, tracks: List[Tuple[int, float, float]]):
         """
@@ -117,6 +119,14 @@ class ZoneState:
                 del self.active_tracks[tid]
 
         self.frame_counts.append(len(tracks))
+        
+        # Append density point
+        self.density_history.append(DensityPoint(
+            timestamp=datetime.now(timezone.utc),
+            count=self.people_count,
+            density_score=self.density_score,
+            occupancy_percent=self.occupancy_percent
+        ))
 
     @property
     def people_count(self) -> int:
@@ -223,3 +233,9 @@ class ZoneEngine:
 
     def get_all_states(self) -> Dict[str, ZoneState]:
         return self.zones
+        
+    def get_density_history(self, zone_id: str) -> List[DensityPoint]:
+        state = self.zones.get(zone_id)
+        if not state:
+            return []
+        return list(state.density_history)

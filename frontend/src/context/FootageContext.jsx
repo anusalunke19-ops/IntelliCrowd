@@ -12,11 +12,23 @@ export function FootageProvider({ children }) {
   const [userZones, setUserZones] = useState([]);
   // userZones = [{ id, label, points: [{x,y}], color }]
 
-  const uploadFootage = (file, name, venue, city) => {
+  const uploadFootage = async (file, name, venue, city) => {
     if (footage?.objectUrl) URL.revokeObjectURL(footage.objectUrl);
     const objectUrl = URL.createObjectURL(file);
     setFootage({ file, objectUrl, name, venue, city });
     setUserZones([]);
+
+    // Send to backend
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      await fetch('http://localhost:8000/api/video/upload', {
+        method: 'POST',
+        body: formData,
+      });
+    } catch (err) {
+      console.error("Failed to upload video to backend:", err);
+    }
   };
 
   const clearFootage = () => {
@@ -27,7 +39,29 @@ export function FootageProvider({ children }) {
 
   const addZone = (zone) => setUserZones(prev => [...prev, zone]);
   const removeZone = (id) => setUserZones(prev => prev.filter(z => z.id !== id));
-  const updateZones = (zones) => setUserZones(zones);
+  
+  const updateZones = async (zones) => {
+    setUserZones(zones);
+    // Send to backend
+    try {
+      const backendZones = zones.map(z => ({
+        zone_id: z.id,
+        label: z.label,
+        polygon: z.points.map(p => [p.x, p.y]), // [[x,y], ...] in 0-1 range
+        capacity: 100, // default
+        warning_threshold: 60,
+        critical_threshold: 85
+      }));
+
+      await fetch('http://localhost:8000/api/config/zones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(backendZones),
+      });
+    } catch (err) {
+      console.error("Failed to update zones on backend:", err);
+    }
+  };
 
   return (
     <FootageContext.Provider value={{ footage, userZones, uploadFootage, clearFootage, addZone, removeZone, updateZones }}>

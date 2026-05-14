@@ -5,20 +5,22 @@
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useFootage } from '../context/FootageContext.jsx';
+import { useCrowdData } from '../context/CrowdDataContext.jsx';
+import HeatmapOverlay from './HeatmapOverlay.jsx';
 
 const VIEWBOX_W = 800;
 const VIEWBOX_H = 500;
 
 // Default SVG zone definitions (pixel coords in 800×500 space)
 const SVG_ZONES = [
-  { id: 'gate_n',         label: 'Gate North',    points: '270,10 530,10 530,85 270,85',     cx: 400, cy: 48 },
-  { id: 'gate_s',         label: 'Gate South',    points: '270,415 530,415 530,490 270,490', cx: 400, cy: 453 },
-  { id: 'gate_e',         label: 'Gate East',     points: '700,160 790,160 790,340 700,340', cx: 745, cy: 250 },
-  { id: 'gate_w',         label: 'Gate West',     points: '10,160 100,160 100,340 10,340',   cx: 55,  cy: 250 },
-  { id: 'main_stage',     label: 'Main Stage',    points: '110,150 690,150 690,310 110,310', cx: 400, cy: 230 },
-  { id: 'food_court',     label: 'Food Court',    points: '110,320 420,320 420,405 110,405', cx: 265, cy: 363 },
-  { id: 'parking_exit',   label: 'Parking Exit',  points: '430,320 690,320 690,405 430,405', cx: 560, cy: 363 },
-  { id: 'muster_point_a', label: 'Muster Pt A',   points: '310,415 490,415 490,490 310,490', cx: 400, cy: 453 },
+  { id: 'gate_n', label: 'Gate North', points: '270,10 530,10 530,85 270,85', cx: 400, cy: 48 },
+  { id: 'gate_s', label: 'Gate South', points: '270,415 530,415 530,490 270,490', cx: 400, cy: 453 },
+  { id: 'gate_e', label: 'Gate East', points: '700,160 790,160 790,340 700,340', cx: 745, cy: 250 },
+  { id: 'gate_w', label: 'Gate West', points: '10,160 100,160 100,340 10,340', cx: 55, cy: 250 },
+  { id: 'main_stage', label: 'Main Stage', points: '110,150 690,150 690,310 110,310', cx: 400, cy: 230 },
+  { id: 'food_court', label: 'Food Court', points: '110,320 420,320 420,405 110,405', cx: 265, cy: 363 },
+  { id: 'parking_exit', label: 'Parking Exit', points: '430,320 690,320 690,405 430,405', cx: 560, cy: 363 },
+  { id: 'muster_point_a', label: 'Muster Pt A', points: '310,415 490,415 490,490 310,490', cx: 400, cy: 453 },
 ];
 
 function zoneColor(riskScore, occupancyPct) {
@@ -37,7 +39,7 @@ function Tooltip({ zone, metrics }) {
   const risk = Math.round(m.riskScore || 0);
   return (
     <div className="pointer-events-none absolute z-30 card rounded-lg p-3 shadow-2xl w-56 text-xs"
-         style={{ left: zone._tipX, top: zone._tipY }}>
+      style={{ left: zone._tipX, top: zone._tipY }}>
       <div className="font-semibold theme-text-primary mb-2">{zone.label}</div>
       <div className="space-y-1 font-mono theme-text-muted">
         <div className="flex justify-between"><span>Headcount</span><span className="theme-text-primary">{m.currentCount || 0} / {m.capacity || '—'}</span></div>
@@ -57,6 +59,7 @@ function Tooltip({ zone, metrics }) {
 
 function SVGMap({ zonesData = [], incidents = [] }) {
   const [hovered, setHovered] = useState(null);
+  const [showHeatmap, setShowHeatmap] = useState(false);
 
   const dataMap = {};
   for (const z of zonesData) {
@@ -82,12 +85,12 @@ function SVGMap({ zonesData = [], incidents = [] }) {
       >
         <defs>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a1a2a" strokeWidth="0.5"/>
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a1a2a" strokeWidth="0.5" />
           </pattern>
         </defs>
-        <rect width="800" height="500" fill="url(#grid)"/>
+        <rect width="800" height="500" fill="url(#grid)" />
         <rect x="10" y="10" width="780" height="480" rx="4"
-              fill="none" stroke="#2A2A3A" strokeWidth="1.5" strokeDasharray="6,3"/>
+          fill="none" stroke="#2A2A3A" strokeWidth="1.5" strokeDasharray="6,3" />
 
         {SVG_ZONES.map(zone => {
           const m = dataMap[zone.id];
@@ -97,14 +100,14 @@ function SVGMap({ zonesData = [], incidents = [] }) {
 
           return (
             <g key={zone.id}
-               style={{ cursor: 'pointer' }}
-               onMouseEnter={(e) => {
-                 const rect = e.currentTarget.ownerSVGElement.getBoundingClientRect();
-                 const svgX = zone.cx / VIEWBOX_W * rect.width;
-                 const svgY = zone.cy / VIEWBOX_H * rect.height;
-                 setHovered({ zone: { ...zone, _tipX: svgX + 10, _tipY: svgY + 10 }, metrics: m });
-               }}
-               onMouseLeave={() => setHovered(null)}
+              style={{ cursor: 'pointer' }}
+              onMouseEnter={(e) => {
+                const rect = e.currentTarget.ownerSVGElement.getBoundingClientRect();
+                const svgX = zone.cx / VIEWBOX_W * rect.width;
+                const svgY = zone.cy / VIEWBOX_H * rect.height;
+                setHovered({ zone: { ...zone, _tipX: svgX + 10, _tipY: svgY + 10 }, metrics: m });
+              }}
+              onMouseLeave={() => setHovered(null)}
             >
               <polygon
                 points={zone.points}
@@ -116,13 +119,13 @@ function SVGMap({ zonesData = [], incidents = [] }) {
                 className={pulse ? 'animate-pulse' : ''}
               />
               <text x={zone.cx} y={zone.cy - 6} textAnchor="middle"
-                    fill="white" fontSize="10" fontFamily="Inter, sans-serif"
-                    fontWeight="600" opacity="0.9">
+                fill="white" fontSize="10" fontFamily="Inter, sans-serif"
+                fontWeight="600" opacity="0.9">
                 {zone.label}
               </text>
               {m && (
                 <text x={zone.cx} y={zone.cy + 10} textAnchor="middle"
-                      fill={fill} fontSize="13" fontFamily="JetBrains Mono, monospace" fontWeight="600">
+                  fill={fill} fontSize="13" fontFamily="JetBrains Mono, monospace" fontWeight="600">
                   {m.currentCount}
                 </text>
               )}
@@ -136,8 +139,8 @@ function SVGMap({ zonesData = [], incidents = [] }) {
                 const fill100 = barW * Math.min(1, occ / 100);
                 return (
                   <g>
-                    <rect x={x0} y={barY} width={barW} height={3} fill="#ffffff10" rx="1.5"/>
-                    <rect x={x0} y={barY} width={fill100} height={3} fill={fill} rx="1.5"/>
+                    <rect x={x0} y={barY} width={barW} height={3} fill="#ffffff10" rx="1.5" />
+                    <rect x={x0} y={barY} width={fill100} height={3} fill={fill} rx="1.5" />
                   </g>
                 );
               })()}
@@ -148,19 +151,19 @@ function SVGMap({ zonesData = [], incidents = [] }) {
         {incidentPins.map((pin, i) => (
           <g key={`pin-${i}`}>
             <circle cx={pin._cx} cy={pin._cy - 30} r={10}
-                    fill="#E24B4A" stroke="#FF6B6A" strokeWidth="1.5"
-                    className="animate-pulse"/>
+              fill="#E24B4A" stroke="#FF6B6A" strokeWidth="1.5"
+              className="animate-pulse" />
             <text x={pin._cx} y={pin._cy - 26} textAnchor="middle"
-                  fill="white" fontSize="9" fontWeight="bold" fontFamily="monospace">
+              fill="white" fontSize="9" fontWeight="bold" fontFamily="monospace">
               {pin._idx + 1}
             </text>
           </g>
         ))}
 
         <g transform="translate(10, 460)">
-          {[['#1D9E75','Safe <60%'],['#EF9F27','Warning 60-85%'],['#E24B4A','Critical >85%']].map(([c,l], i) => (
+          {[['#1D9E75', 'Safe <60%'], ['#EF9F27', 'Warning 60-85%'], ['#E24B4A', 'Critical >85%']].map(([c, l], i) => (
             <g key={i} transform={`translate(${i * 130}, 0)`}>
-              <rect width="10" height="10" fill={c} fillOpacity="0.6" stroke={c} strokeWidth="1" rx="2"/>
+              <rect width="10" height="10" fill={c} fillOpacity="0.6" stroke={c} strokeWidth="1" rx="2" />
               <text x="14" y="9" fill="#aaa" fontSize="9" fontFamily="Inter,sans-serif">{l}</text>
             </g>
           ))}
@@ -172,65 +175,30 @@ function SVGMap({ zonesData = [], incidents = [] }) {
           <Tooltip zone={hovered.zone} metrics={hovered.metrics} />
         </div>
       )}
+
+      <HeatmapOverlay visible={showHeatmap} isSimulated={true} />
+
+      <button
+        onClick={() => setShowHeatmap(!showHeatmap)}
+        className={`absolute top-2 right-2 z-20 px-3 py-1.5 rounded text-xs font-bold transition-colors ${showHeatmap ? 'bg-cs-amber text-black shadow-[0_0_10px_rgba(239,159,39,0.5)]' : 'bg-black/50 text-white hover:bg-black/80'
+          }`}
+      >
+        Heatmap {showHeatmap ? 'ON' : 'OFF'}
+      </button>
     </div>
   );
 }
 
 // ─── Video Map with User Polygons ─────────────────────────────────────────────
 
-// Mock alert generator for video zones (mirrors the engine's pattern)
-const ALERT_TEMPLATES = [
-  { type: 'DENSITY_CRITICAL', sev: 'P1', msg: 'Crowd density at critical threshold', action: 'Dispatch staff immediately' },
-  { type: 'SURGE_DETECTED',   sev: 'P2', msg: 'Rapid surge in headcount detected',  action: 'Monitor and prepare response' },
-  { type: 'BOTTLENECK',       sev: 'P2', msg: 'Bottleneck forming at zone boundary', action: 'Open secondary exit routes' },
-  { type: 'COUNTER_FLOW',     sev: 'P3', msg: 'Counter-flow movement detected',      action: 'Guide crowd with stewards' },
-];
-
-function useVideoAlerts(zones) {
-  const [videoAlerts, setVideoAlerts] = useState([]);
-
-  useEffect(() => {
-    if (!zones || zones.length === 0) return;
-
-    // Fire a mock alert every 8-15 seconds for a random user zone
-    const fire = () => {
-      const zone = zones[Math.floor(Math.random() * zones.length)];
-      const tmpl = ALERT_TEMPLATES[Math.floor(Math.random() * ALERT_TEMPLATES.length)];
-      const alert = {
-        id: `va-${Date.now()}`,
-        type: tmpl.type,
-        severity: tmpl.sev,
-        zoneLabel: zone.label,
-        message: tmpl.msg,
-        recommendedAction: tmpl.action,
-        timestamp: new Date(),
-        active: true,
-      };
-      setVideoAlerts(prev => [alert, ...prev].slice(0, 8));
-      // Auto-dismiss after 12s
-      setTimeout(() => {
-        setVideoAlerts(prev => prev.filter(a => a.id !== alert.id));
-      }, 12000);
-    };
-
-    const schedule = () => {
-      const delay = 8000 + Math.random() * 7000;
-      return setTimeout(() => { fire(); tmRef.current = schedule(); }, delay);
-    };
-    const tmRef = { current: schedule() };
-    return () => clearTimeout(tmRef.current);
-  }, [zones]);
-
-  return videoAlerts;
-}
-
 function VideoMap({ incidents = [] }) {
   const { footage, userZones } = useFootage();
+  const { detections = [], alerts = [] } = useCrowdData();
   const canvasRef = useRef(null);
   const videoRef = useRef(null);
   const [videoReady, setVideoReady] = useState(false);
-  const videoAlerts = useVideoAlerts(userZones);
   const [dismissedAlerts, setDismissedAlerts] = useState(new Set());
+  const [showHeatmap, setShowHeatmap] = useState(false);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -243,7 +211,7 @@ function VideoMap({ incidents = [] }) {
 
     // Draw video
     if (videoReady) {
-      try { ctx.drawImage(video, 0, 0, W, H); } catch(_) {}
+      try { ctx.drawImage(video, 0, 0, W, H); } catch (_) { }
     } else {
       ctx.fillStyle = '#0D0D18';
       ctx.fillRect(0, 0, W, H);
@@ -265,7 +233,7 @@ function VideoMap({ incidents = [] }) {
       ctx.stroke();
 
       // Pulsing ring for active alert zones
-      const hasAlert = videoAlerts.some(a => a.zoneLabel === zone.label && !dismissedAlerts.has(a.id));
+      const hasAlert = alerts.some(a => a.zone_id === zone.id && !dismissedAlerts.has(a.id));
       if (hasAlert) {
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
@@ -287,7 +255,7 @@ function VideoMap({ incidents = [] }) {
       const tw = ctx.measureText(zone.label).width;
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       ctx.beginPath();
-      ctx.roundRect(cx - tw/2 - 6, cy - 9, tw + 12, 18, 4);
+      ctx.roundRect(cx - tw / 2 - 6, cy - 9, tw + 12, 18, 4);
       ctx.fill();
 
       ctx.fillStyle = '#fff';
@@ -302,6 +270,25 @@ function VideoMap({ incidents = [] }) {
         ctx.fillStyle = zone.color;
         ctx.fill();
       });
+    });
+
+    // Draw real-time bounding boxes from backend
+    detections.forEach(box => {
+      const x1 = box.x1 * W;
+      const y1 = box.y1 * H;
+      const x2 = box.x2 * W;
+      const y2 = box.y2 * H;
+      const bw = x2 - x1;
+      const bh = y2 - y1;
+
+      ctx.strokeStyle = '#00FF00';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x1, y1, bw, bh);
+
+      // Track ID
+      ctx.fillStyle = '#00FF00';
+      ctx.font = '9px monospace';
+      ctx.fillText(`ID:${box.track_id}`, x1, y1 > 10 ? y1 - 2 : y1 + 10);
     });
 
     // Incident pins
@@ -324,7 +311,7 @@ function VideoMap({ incidents = [] }) {
       ctx.textBaseline = 'middle';
       ctx.fillText(idx + 1, cx, cy - 20);
     });
-  }, [userZones, videoReady, videoAlerts, dismissedAlerts, incidents]);
+  }, [userZones, videoReady, alerts, detections, dismissedAlerts, incidents]);
 
   // Animation loop
   useEffect(() => {
@@ -348,7 +335,7 @@ function VideoMap({ incidents = [] }) {
     return () => window.removeEventListener('resize', update);
   }, []);
 
-  const activeAlerts = videoAlerts.filter(a => !dismissedAlerts.has(a.id));
+  const activeAlerts = alerts.filter(a => !dismissedAlerts.has(a.id));
 
   return (
     <div className="relative w-full select-none">
@@ -361,8 +348,8 @@ function VideoMap({ incidents = [] }) {
             color: '#ffffff',
           }}
         >
-          <span className="w-2 h-2 rounded-full bg-cs-red animate-pulse flex-shrink-0"/>
-          LIVE — {footage.name}
+          <span className="w-2 h-2 rounded-full bg-cs-red animate-pulse flex-shrink-0" />
+          LIVE MONITORING
         </div>
         {userZones.length > 0 && (
           <div className="bg-cs-amber/20 border border-cs-amber/40 backdrop-blur px-2 py-0.5 rounded-full text-[10px] text-cs-amber font-mono">
@@ -375,12 +362,15 @@ function VideoMap({ incidents = [] }) {
       <video
         ref={videoRef}
         src={footage.objectUrl}
-        className="hidden"
+        style={{ position: 'absolute', width: '1px', height: '1px', opacity: 0, pointerEvents: 'none' }}
         autoPlay
         muted
         loop
-        onCanPlay={() => setVideoReady(true)}
         playsInline
+        onCanPlay={(e) => {
+          setVideoReady(true);
+          e.target.play().catch(err => console.error("Video autoplay blocked:", err));
+        }}
       />
 
       {/* Canvas */}
@@ -390,16 +380,16 @@ function VideoMap({ incidents = [] }) {
         style={{ background: '#0D0D18' }}
       />
 
-      {/* Mock alert toasts overlaid on the video */}
+      {/* Real-time alert toasts overlaid on the video */}
       {activeAlerts.length > 0 && (
         <div className="absolute bottom-3 right-3 flex flex-col gap-2 max-w-xs z-20">
           {activeAlerts.slice(0, 3).map(alert => (
             <div
               key={alert.id}
               className={`rounded-lg border p-2.5 text-xs backdrop-blur-sm animate-fade-in shadow-lg
-                ${alert.severity === 'P1'
+                ${alert.severity === 'CRITICAL' || alert.severity === 'P1'
                   ? 'bg-cs-red/20 border-cs-red/50 text-cs-red'
-                  : alert.severity === 'P2'
+                  : alert.severity === 'WARNING' || alert.severity === 'P2'
                     ? 'bg-cs-amber/20 border-cs-amber/50 text-cs-amber'
                     : 'bg-cs-blue/20 border-cs-blue/50 text-cs-blue'
                 }`}
@@ -407,7 +397,7 @@ function VideoMap({ incidents = [] }) {
               <div className="flex items-center justify-between gap-2 mb-0.5">
                 <div className="flex items-center gap-1.5 font-semibold font-mono">
                   <span className={`px-1.5 py-0.5 rounded text-[10px] text-white
-                    ${alert.severity === 'P1' ? 'bg-cs-red' : alert.severity === 'P2' ? 'bg-cs-amber' : 'bg-cs-blue'}`}>
+                    ${alert.severity === 'CRITICAL' || alert.severity === 'P1' ? 'bg-cs-red' : alert.severity === 'WARNING' || alert.severity === 'P2' ? 'bg-cs-amber' : 'bg-cs-blue'}`}>
                     {alert.severity}
                   </span>
                   {alert.type}
@@ -417,7 +407,7 @@ function VideoMap({ incidents = [] }) {
                   className="opacity-60 hover:opacity-100 text-white text-xs"
                 >✕</button>
               </div>
-              <div className="opacity-80 mb-0.5">{alert.zoneLabel}</div>
+              <div className="opacity-80 mb-0.5">{alert.zone_id}</div>
               <div className="text-white/80">{alert.message}</div>
             </div>
           ))}
@@ -432,6 +422,16 @@ function VideoMap({ incidents = [] }) {
           </div>
         </div>
       )}
+
+      <HeatmapOverlay visible={showHeatmap} isSimulated={false} />
+
+      <button
+        onClick={() => setShowHeatmap(!showHeatmap)}
+        className={`absolute top-2 right-2 z-20 px-3 py-1.5 rounded text-xs font-bold transition-colors ${showHeatmap ? 'bg-cs-amber text-black shadow-[0_0_10px_rgba(239,159,39,0.5)]' : 'bg-black/50 text-white hover:bg-black/80'
+          }`}
+      >
+        Heatmap {showHeatmap ? 'ON' : 'OFF'}
+      </button>
     </div>
   );
 }

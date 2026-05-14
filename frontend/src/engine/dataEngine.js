@@ -195,6 +195,12 @@ export class CrowdEngine {
     // Record initial history point
     for (const z of Object.values(this.zones)) {
       z.history.push({ t: 0, count: z.currentCount });
+      z.densityHistory = [{
+        timestamp: new Date().toISOString(),
+        count: z.currentCount,
+        densityScore: calcRiskScore(z),
+        occupancyPercent: Math.round((z.currentCount / z.capacity) * 100)
+      }];
     }
   }
 
@@ -218,6 +224,7 @@ export class CrowdEngine {
       eventLog: [...this.eventLog],
       networkDegraded: this.networkDegraded,
       elapsed: (Date.now() - this._startTime) / 1000,
+      heatmapAvailable: true,
     };
   }
 
@@ -241,6 +248,15 @@ export class CrowdEngine {
       // Rolling history (last 40 points for sparklines)
       z.history.push({ t: elapsed, count: z.currentCount });
       if (z.history.length > 40) z.history.shift();
+
+      // Density history for full charts
+      z.densityHistory.push({
+        timestamp: new Date().toISOString(),
+        count: z.currentCount,
+        densityScore: calcRiskScore(z),
+        occupancyPercent: Math.round((z.currentCount / z.capacity) * 100)
+      });
+      if (z.densityHistory.length > 60) z.densityHistory.shift();
     }
 
     // ── Scripted anomaly events ───────────────────────────────────────────

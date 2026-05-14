@@ -11,19 +11,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
+import tempfile
+import shutil
 
 from app.schemas import (
     Alert, AlertStatus, CameraConfig, GlobalStatus, Incident,
-    IncidentCreate, LivePayload, ZoneMetrics,
+    IncidentCreate, LivePayload, ZoneMetrics, ZoneConfig, BoundingBox
 )
-from app.detection import VideoDetector
+from app.detection import VideoDetector, CV2_AVAILABLE
 from app.zone_engine import ZoneEngine, load_zone_configs
 from app.metrics_engine import build_all_metrics
 from app.risk_engine import classify_global_risk, top_risk_zones
 from app.alert_engine import AlertEngine
+
+# Rebuild models to resolve forward references
+LivePayload.model_rebuild()
+ZoneMetrics.model_rebuild()
+Incident.model_rebuild()
 
 # ─── App setup ────────────────────────────────────────────────────────────────
 
@@ -40,18 +47,27 @@ app.add_middleware(
 # ─── Pipeline state (global singletons) ──────────────────────────────────────
 
 zone_configs = load_zone_configs()
-detector = VideoDetector(camera_id="cam_entrance_01")
+
+# Auto-recover last uploaded video if it exists
+_temp_dir = Path(tempfile.gettempdir()) / "intellicrowd"
+_default_src = None
+if _temp_dir.exists():
+    _mp4s = list(_temp_dir.glob("*.mp4")) + list(_temp_dir.glob("*.mov"))
+    if _mp4s:
+        # Sort by modification time to get the latest
+        _mp4s.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        _default_src = str(_mp4s[0])
+
+detector = VideoDetector(source=_default_src, camera_id="cam_entrance_01")
 zone_engine = ZoneEngine(zone_configs)
 alert_engine = AlertEngine()
 
 # In-memory stores
+_ws_clients: List[WebSocket] = []
+_alert_history: List[Alert] = []
 _incidents: Dict[str, Incident] = {}
-_alert_history: deque[Alert] = deque(maxlen=500)
 _latest_metrics: List[ZoneMetrics] = []
 _latest_payload: Optional[LivePayload] = None
-
-# WebSocket connection manager
-_ws_clients: List[WebSocket] = []
 
 
 # ─── Background pipeline loop ─────────────────────────────────────────────────
@@ -62,9 +78,13 @@ async def pipeline_loop():
 
     while True:
         try:
+            print(f"[pipeline] Processing frame (Real: {detector._real})...", flush=True)
             frame = detector.next_frame()
+            print(f"[pipeline] Zone assignment...", flush=True)
             zone_engine.process_frame(frame)
+            print(f"[pipeline] Building metrics...", flush=True)
             metrics = build_all_metrics(zone_engine.get_all_states())
+            print(f"[pipeline] Processing alerts...", flush=True)
             new_alerts = alert_engine.process(metrics)
             for a in new_alerts:
                 _alert_history.append(a)
@@ -84,6 +104,9 @@ async def pipeline_loop():
                 zones=metrics,
                 global_status=global_status,
                 active_alerts=alert_engine.open_alerts()[-20:],
+                heatmap_available=detector._latest_heatmap is not None or not CV2_AVAILABLE,
+                detections=frame.boxes,
+                incidents=list(_incidents.values()),
             )
             _latest_metrics = metrics
             _latest_payload = payload
@@ -93,6 +116,7 @@ async def pipeline_loop():
             for ws in _ws_clients:
                 try:
                     await ws.send_text(payload.model_dump_json())
+                    print(f"[pipeline] Sent update to client", flush=True)
                 except Exception:
                     dead.append(ws)
             for ws in dead:
@@ -101,7 +125,7 @@ async def pipeline_loop():
         except Exception as e:
             print(f"[pipeline] Error: {e}")
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.3)
 
 
 @app.on_event("startup")
@@ -114,6 +138,7 @@ async def startup():
 @app.websocket("/ws/live")
 async def ws_live(websocket: WebSocket):
     await websocket.accept()
+    print(f"[ws] Client connected: {websocket.client}", flush=True)
     _ws_clients.append(websocket)
     # Send last known state immediately on connect
     if _latest_payload:
@@ -192,19 +217,53 @@ async def get_cameras():
 
 
 @app.get("/api/config/zones")
-async def get_zone_config():
-    cfg_path = Path(__file__).parent.parent / "zones_config.json"
-    return JSONResponse(content=json.loads(cfg_path.read_text()))
+async def get_config_zones():
+    return [z.dict() for z in zone_engine.config]
 
 
 @app.post("/api/config/zones")
-async def update_zone_config(body: dict):
-    cfg_path = Path(__file__).parent.parent / "zones_config.json"
-    cfg_path.write_text(json.dumps(body, indent=2))
-    global zone_configs, zone_engine
-    zone_configs = load_zone_configs()
-    zone_engine = ZoneEngine(zone_configs)
-    return {"ok": True, "zones_loaded": len(zone_configs)}
+async def update_zones(zones: List[ZoneConfig]):
+    global zone_engine
+    zone_engine = ZoneEngine(zones)
+    print(f"[main] Updated configuration with {len(zones)} zones")
+    return {"ok": True, "zones_loaded": len(zones)}
+
+
+@app.get("/api/heatmap/latest")
+async def get_heatmap():
+    heatmap = detector.get_heatmap_jpeg()
+    if not heatmap:
+        raise HTTPException(503, "Heatmap not available")
+    return Response(content=heatmap, media_type="image/jpeg")
+
+
+@app.get("/api/zones/{zone_id}/density-history")
+async def get_zone_density_history(zone_id: str):
+    state = zone_engine.zones.get(zone_id)
+    if not state:
+        raise HTTPException(404, "Zone not found")
+    return state.get_density_history(zone_id)
+
+
+@app.post("/api/video/upload")
+async def upload_video(file: UploadFile = File(...)):
+    global detector
+    # Save the uploaded file to a temporary location
+    temp_dir = Path(tempfile.gettempdir()) / "intellicrowd"
+    temp_dir.mkdir(exist_ok=True)
+    temp_path = temp_dir / file.filename
+    
+    with open(temp_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+        
+    print(f"[main] Video uploaded to {temp_path}")
+    
+    # Reinitialize detector with the new video
+    if detector:
+        detector.release()
+    detector = VideoDetector(source=str(temp_path))
+    
+    return {"ok": True, "message": "Video loaded successfully"}
 
 
 @app.get("/api/frame/latest")

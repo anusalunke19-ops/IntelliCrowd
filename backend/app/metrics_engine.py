@@ -119,6 +119,7 @@ def build_zone_metrics(
         reason=_reasons(state),
         recommended_action=_recommended_action(state, risk_level),
         timestamp=ts,
+        density_history=list(state.density_history),
     )
 
 

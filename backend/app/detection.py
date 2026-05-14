@@ -9,7 +9,9 @@ import time
 import math
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
+import numpy as np
 from app.schemas import BoundingBox, DetectionFrame
+from app.csrnet_engine import CSRNetEngine
 
 # ─── Try importing optional heavy deps ───────────────────────────────────────
 
@@ -63,10 +65,10 @@ class SimulatedPerson:
 
     def to_box(self) -> BoundingBox:
         return BoundingBox(
-            x1=self.x - self.w / 2,
-            y1=self.y - self.h / 2,
-            x2=self.x + self.w / 2,
-            y2=self.y + self.h / 2,
+            x1=(self.x - self.w / 2) / FRAME_W,
+            y1=(self.y - self.h / 2) / FRAME_H,
+            x2=(self.x + self.w / 2) / FRAME_W,
+            y2=(self.y + self.h / 2) / FRAME_H,
             confidence=round(random.uniform(0.72, 0.99), 3),
             track_id=self.id,
         )
@@ -166,7 +168,7 @@ class VideoDetector:
     def __init__(
         self,
         source: Optional[str] = None,
-        model_path: str = "yolov8n.pt",
+        model_path: str = "yolov8l.pt",
         fps: int = 5,
         camera_id: str = "cam_01",
     ):
@@ -176,6 +178,11 @@ class VideoDetector:
         self._real = False
         self._cap = None
         self._model = None
+        self._csrnet = CSRNetEngine()
+        self._latest_density_map = None
+        self._latest_heatmap = None
+        self._latest_frame_img = None
+        self._latest_frame = None  # NEW: Store latest DetectionFrame
 
         if source and CV2_AVAILABLE:
             try:
@@ -206,27 +213,105 @@ class VideoDetector:
 
     def _read_real_frame(self) -> DetectionFrame:
         assert self._cap and self._model
-        ret, frame = self._cap.read()
+        
+        # Fast frame skipping to maintain real-time tracking
+        if not hasattr(self, '_last_read_time'):
+            self._last_read_time = time.time()
+            ret, frame = self._cap.read()
+        else:
+            now = time.time()
+            elapsed = now - self._last_read_time
+            self._last_read_time = now
+            
+            fps = self._cap.get(cv2.CAP_PROP_FPS) or 30.0
+            frames_to_advance = max(1, int(elapsed * fps))
+            
+            # Efficiently skip frames using grab()
+            for _ in range(frames_to_advance - 1):
+                if not self._cap.grab():
+                    # Video ended, loop back
+                    self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    break
+            
+            ret, frame = self._cap.read()
+
         if not ret:
             self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             ret, frame = self._cap.read()
         if not ret:
             return self._sim.next_frame(self.camera_id)
 
-        results = self._model(frame, classes=[0], verbose=False)[0]  # class 0 = person
+        self._latest_frame_img = frame
+
+        # Run CSRNet first (as it might take longer on CPU)
+        self._latest_density_map = self._csrnet.predict_density(frame)
+        if self._latest_density_map is not None:
+            self._latest_heatmap = self._csrnet.render_heatmap(self._latest_density_map)
+
+        # Use YOLO tracking with optimized parameters for dense crowds
+        results = self._model.track(
+            frame, 
+            classes=[0], 
+            imgsz=1280, 
+            conf=0.15, 
+            persist=True, 
+            verbose=False
+        )[0]
         boxes: List[BoundingBox] = []
+        H, W = frame.shape[:2]
         for i, box in enumerate(results.boxes):
             x1, y1, x2, y2 = box.xyxy[0].tolist()
             conf = float(box.conf[0])
             tid = int(box.id[0]) if box.id is not None else i
-            boxes.append(BoundingBox(x1=x1, y1=y1, x2=x2, y2=y2, confidence=conf, track_id=tid))
+            boxes.append(BoundingBox(
+                x1=x1 / W, 
+                y1=y1 / H, 
+                x2=x2 / W, 
+                y2=y2 / H, 
+                confidence=conf, 
+                track_id=tid
+            ))
 
-        return DetectionFrame(
+        self._latest_frame = DetectionFrame(
             frame_id=0,
             timestamp=datetime.now(timezone.utc),
             camera_id=self.camera_id,
             boxes=boxes,
         )
+        return self._latest_frame
+
+    def get_heatmap_jpeg(self) -> Optional[bytes]:
+        """Return a JPEG-encoded heatmap frame."""
+        if self._latest_heatmap is not None:
+            return self._latest_heatmap
+            
+        # Simulate heatmap if real one not available
+        if not CV2_AVAILABLE:
+            return None
+            
+        frame = np.zeros((FRAME_H, FRAME_W, 3), dtype="uint8")
+        
+        # Use real detections for heatmap simulation if available
+        if self._latest_frame and self._latest_frame.boxes:
+            for box in self._latest_frame.boxes:
+                cx = int((box.x1 + box.x2) / 2 * FRAME_W)
+                cy = int((box.y1 + box.y2) / 2 * FRAME_H)
+                if 0 <= cx < FRAME_W and 0 <= cy < FRAME_H:
+                    cv2.circle(frame, (cx, cy), 30, (0, 0, 255), -1)
+        else:
+            # Fallback to sim persons only if no real detections
+            for zone_id, persons in self._sim._persons.items():
+                for p in persons:
+                    x, y = int(p.x), int(p.y)
+                    if 0 <= x < FRAME_W and 0 <= y < FRAME_H:
+                        cv2.circle(frame, (x, y), 20, (0, 0, 200), -1)
+                        cv2.circle(frame, (x, y), 10, (0, 100, 255), -1)
+        
+        # Blur it
+        frame = cv2.GaussianBlur(frame, (51, 51), 0)
+        
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return buf.tobytes()
 
     def get_annotated_frame(self) -> Optional[bytes]:
         """Return a JPEG-encoded annotated frame (for /api/frame/latest)."""

@@ -502,10 +502,10 @@ export default function UploadFootage() {
     setStep(2);
   };
 
-  const handleSave = (normalizedZones) => {
+  const handleSave = async (normalizedZones) => {
     if (uploadData) {
-      uploadFootage(uploadData.file, uploadData.name, uploadData.venue, uploadData.city);
-      updateZones(normalizedZones);
+      await uploadFootage(uploadData.file, uploadData.name, uploadData.venue, uploadData.city);
+      await updateZones(normalizedZones);
     }
     navigate('/dashboard');
   };

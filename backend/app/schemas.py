@@ -21,7 +21,7 @@ class Point(BaseModel):
 class ZoneConfig(BaseModel):
     zone_id: str
     label: str
-    type: Literal["entry", "exit", "transit", "open_area", "queue", "muster"]
+    type: Literal["entry", "exit", "transit", "open_area", "queue", "muster"] = "open_area"
     polygon: List[List[float]]          # [[x,y], ...]
     capacity: int
     warning_threshold: float = 0.60
@@ -59,6 +59,13 @@ class MovementVector(BaseModel):
     speed: float          # pixels/frame
 
 
+class DensityPoint(BaseModel):
+    timestamp: datetime
+    count: int
+    density_score: float
+    occupancy_percent: float
+
+
 class ZoneMetrics(BaseModel):
     zone_id: str
     label: str
@@ -79,6 +86,7 @@ class ZoneMetrics(BaseModel):
     reason: List[str]
     recommended_action: str
     timestamp: datetime
+    density_history: List[DensityPoint] = Field(default_factory=list)
 
 
 # ─── Alerts ───────────────────────────────────────────────────────────────────
@@ -157,6 +165,9 @@ class LivePayload(BaseModel):
     zones: List[ZoneMetrics]
     global_status: GlobalStatus
     active_alerts: List[Alert]
+    heatmap_available: bool = False
+    detections: List[BoundingBox] = []
+    incidents: List[Incident] = []
 
 
 # ─── Camera Config ────────────────────────────────────────────────────────────
