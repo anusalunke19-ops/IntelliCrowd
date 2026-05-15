@@ -108,6 +108,12 @@ class ZoneState:
     """Maintains rolling frame history and active tracks for one zone."""
 
     def __init__(self, config: ZoneConfig):
+        # ── Handle Normalized Polygons ──
+        # If the frontend sent normalized coordinates [0-1], scale them to pixel space (1280x720)
+        # We use <= 2.0 to be safe against slight out-of-bounds drawing
+        if all(p[0] <= 2.0 and p[1] <= 2.0 for p in config.polygon):
+            config.polygon = [[p[0] * 1280.0, p[1] * 720.0] for p in config.polygon]
+
         self.config = config
         self.area = polygon_area(config.polygon)
         # Rolling history: each entry is a list of TrackHistory in zone
@@ -190,14 +196,18 @@ class ZoneState:
         return yolo_count
 
     @property
-    def occupancy_percent(self) -> float:
-        return min(100.0, self.hybrid_count / max(1, self.config.capacity) * 100)
-
-    @property
     def density_score(self) -> float:
         if self.area < 1:
             return 0.0
-        return min(1.0, self.hybrid_count / (self.area / 4000))
+        # 1 pixel ≈ 0.05m -> 1 sq pixel ≈ 0.0025 sq m. Critical density is ~4 people/sq m.
+        # Max capacity for area = self.area * 0.0025 * 4 = self.area * 0.01
+        # Adjusted sensitivity: halfway between 0.0005 (too sensitive) and 0.0015 (too forgiving).
+        # New capacity factor: 0.0010
+        return min(1.0, self.hybrid_count / (self.area * 0.0010))
+
+    @property
+    def occupancy_percent(self) -> float:
+        return self.density_score * 100.0
 
     @property
     def avg_speed(self) -> float:

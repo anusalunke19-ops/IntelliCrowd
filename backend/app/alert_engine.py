@@ -1,10 +1,21 @@
 """
-IntelliCrowd — Alert Engine (Refined)
-Detects anomalies and emits structured alerts.
+IntelliCrowd — Alert Engine (Simplified & Calibrated)
 
-Refinement:
-  - PREDICTIVE_WARNING alert when zone is predicted to hit critical
-    within 60 seconds (Refinement #10)
+Only two alert types are emitted to avoid false-alarm fatigue:
+
+  1. DENSITY_CRITICAL  — zone density ≥ 85 % (physical people/m² near crush limit).
+                         Cooldown: 60 s to prevent repeat-fire.
+
+  2. STAMPEDE_DETECTED — crowd is BOTH dense (≥ 60 %) AND moving abnormally fast
+                         (avg_speed ≥ 2.5 m/s).  Fast-moving sparse crowds are NOT
+                         flagged (normal activity).  Dense-but-slow crowds are already
+                         caught by DENSITY_CRITICAL.  Cooldown: 30 s.
+
+Thresholds are anchored to real-world benchmarks:
+  - Crush/dangerous density ≈ 4 p/m² → maps to 100 % in ZoneState.density_score.
+    85 % ≈ 3.4 p/m², a well-recognised danger threshold (Fruin Level F).
+  - Panic speed ≥ 2.5 m/s (≈ 9 km/h) is clearly running-in-crowd territory.
+  - 60 % density floor prevents false stampede alerts from thin, fast-moving queues.
 """
 from __future__ import annotations
 import uuid
@@ -16,35 +27,31 @@ from app.schemas import Alert, AlertSeverity, AlertType, ZoneMetrics
 from app.prediction_engine import PredictionEngine
 
 
-# ─── Alert thresholds ─────────────────────────────────────────────────────────
+# ─── Thresholds ──────────────────────────────────────────────────────────────
 
-DENSITY_CRITICAL_THRESHOLD = 70.0     # occupancy % — triggers at 70% capacity
-SURGE_THRESHOLD = 1.10                 # 10% rise within window (was 20%)
-SURGE_WINDOW_FRAMES = 10              # ~30s at 3 ticks/s (was 40 = 2 min)
-BOTTLENECK_MIN_FRAMES = 5             # ~15s sustained (was 15 = 3 min)
-CROWD_STOP_SPEED = 0.05               # m/s — catches slower movement (was 0.02)
+# Density-only threshold (Fruin Level-F danger zone ≈ 3.4 p/m²)
+DENSITY_CRITICAL_THRESHOLD = 85.0      # occupancy % (density-based)
 
-# Predictive warning thresholds
-PREDICTIVE_WARNING_SECS = 60.0         # warn if critical predicted within 60s
+# Combined stampede: zone must be crowd-dense AND crowd is running
+STAMPEDE_DENSITY_FLOOR    = 60.0       # minimum density % before velocity matters
+STAMPEDE_SPEED_THRESHOLD  = 2.5        # m/s — clearly running/panic speed
+
+# Cooldowns (seconds) — prevent alert storm
+DENSITY_COOLDOWN  = 60
+STAMPEDE_COOLDOWN = 30
 
 
 class AlertEngine:
     """
     Stateful alert detector — call .process() every pipeline tick.
-    Maintains rolling occupancy history per zone for surge detection.
+    Emits at most two distinct alert types to keep the feed meaningful.
     """
 
-    def __init__(self, max_history: int = 500):
-        # zone_id → deque of (timestamp, occupancy_percent)
-        self._occ_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=SURGE_WINDOW_FRAMES * 2))
-        # zone_id → consecutive frames with bottleneck condition
-        self._bottleneck_counter: Dict[str, int] = defaultdict(int)
-        # alert history (last max_history)
+    def __init__(self, max_history: int = 200):
         self._history: deque[Alert] = deque(maxlen=max_history)
-        # suppress duplicate alerts within cooldown period
         self._last_alert: Dict[str, datetime] = {}
 
-    def _suppress(self, key: str, cooldown_secs: int = 30) -> bool:
+    def _suppress(self, key: str, cooldown_secs: int) -> bool:
         last = self._last_alert.get(key)
         now = datetime.now(timezone.utc)
         if last and (now - last).total_seconds() < cooldown_secs:
@@ -74,104 +81,74 @@ class AlertEngine:
     ) -> List[Alert]:
         """Check all zone metrics and return newly triggered alerts."""
         new_alerts: List[Alert] = []
-        now = datetime.now(timezone.utc)
 
         for m in metrics:
             zid = m.zone_id
-            self._occ_history[zid].append((now, m.occupancy_percent))
 
-            # ── DENSITY_CRITICAL ──────────────────────────────────────────
+            # ── 1. DENSITY_CRITICAL ──────────────────────────────────────
+            # Fires when the physical crowd density in the zone crosses the
+            # Fruin Level-F danger boundary (~3.4 people/m²).
             if m.occupancy_percent >= DENSITY_CRITICAL_THRESHOLD:
-                key = f"DENSITY_CRITICAL:{zid}"
-                if not self._suppress(key, 15):   # cooldown 15s (was 45s)
+                key = f"DENSITY:{zid}"
+                if not self._suppress(key, DENSITY_COOLDOWN):
                     new_alerts.append(self._emit(
                         "DENSITY_CRITICAL", zid, "P1",
-                        f"{m.label} is at {m.occupancy_percent:.0f}% capacity — imminent crush risk",
-                        "Close all inflow immediately and activate emergency dispersal protocol",
+                        f"Stampede Possibility in {m.label}",
+                        (
+                            f"Crowd density is critically high ({m.occupancy_percent:.0f}% of safe limit). "
+                            f"Redirect inflow immediately and deploy stewards."
+                        ),
                     ))
 
-            # ── SURGE_DETECTED ────────────────────────────────────────────
-            history = list(self._occ_history[zid])
-            if len(history) >= SURGE_WINDOW_FRAMES:
-                baseline = history[-SURGE_WINDOW_FRAMES][1]
-                current = history[-1][1]
-                if baseline > 2 and current / baseline >= SURGE_THRESHOLD:
-                    key = f"SURGE:{zid}"
-                    if not self._suppress(key, 20):  # was 60s
-                        new_alerts.append(self._emit(
-                            "SURGE_DETECTED", zid, "P1",
-                            f"{m.label} headcount surged {current / baseline * 100 - 100:.0f}% in <2 min",
-                            "Deploy stewards to regulate inflow — open alternate access routes",
-                        ))
-
-            # ── COUNTER_FLOW ──────────────────────────────────────────────
-            if m.flow_direction == "opposing":
-                key = f"COUNTER_FLOW:{zid}"
-                if not self._suppress(key, 20):  # was 60s
-                    new_alerts.append(self._emit(
-                        "COUNTER_FLOW", zid, "P2",
-                        f"Opposing crowd flows detected in {m.label} — collision risk elevated",
-                        "Segregate flows with physical barriers; assign 2 stewards immediately",
-                    ))
-
-            # ── BOTTLENECK ────────────────────────────────────────────────
-            if m.flow_direction in ("stationary", "opposing") and m.people_count > 3:  # was 10
-                self._bottleneck_counter[zid] += 1
-            else:
-                self._bottleneck_counter[zid] = 0
-
-            if self._bottleneck_counter[zid] >= BOTTLENECK_MIN_FRAMES:
-                key = f"BOTTLENECK:{zid}"
-                if not self._suppress(key, 30):  # was 90s
-                    new_alerts.append(self._emit(
-                        "BOTTLENECK", zid, "P2",
-                        f"Persistent bottleneck in {m.label} — flow obstructed for >3 min",
-                        "Remove obstructions and widen exit points; use PA to redirect crowd",
-                    ))
-
-            # ── CROWD_STOP ────────────────────────────────────────────────
-            if m.avg_speed < CROWD_STOP_SPEED and m.people_count > 3:  # was 15
-                key = f"CROWD_STOP:{zid}"
-                if not self._suppress(key, 20):  # was 60s
-                    new_alerts.append(self._emit(
-                        "CROWD_STOP", zid, "P2",
-                        f"Crowd movement has stopped in {m.label} — pressure build-up possible",
-                        "Assess cause of stoppage; prepare stewards for controlled dispersal",
-                    ))
-
-            # ── CLUSTER ──────────────────────────────────────────────────
-            if m.people_count >= 10 and m.occupancy_percent > 70:
-                key = f"CLUSTER:{zid}"
-                if not self._suppress(key, 60):
-                    new_alerts.append(self._emit(
-                        "CLUSTER_DETECTED", zid, "P2",
-                        f"Crowd cluster detected in {m.label}",
-                        "Dispatch stewards to monitor cluster and ensure safety",
-                    ))
-
-            # ── STAMPEDE / PANIC ──────────────────────────────────────────
-            # Advanced behavioral heuristic: High crowd speed + sufficient density = panic
-            if m.avg_speed > 1.2 and m.people_count > 5:
+            # ── 2. STAMPEDE_DETECTED ─────────────────────────────────────
+            # Fires only when the zone is already crowded AND the crowd is
+            # moving at panic speed.  Avoids false alerts on sparse-but-fast
+            # scenarios (e.g., an open corridor with a few runners).
+            elif (
+                m.avg_speed >= STAMPEDE_SPEED_THRESHOLD
+                and m.occupancy_percent >= STAMPEDE_DENSITY_FLOOR
+                and m.people_count > 5
+            ):
                 key = f"STAMPEDE:{zid}"
-                if not self._suppress(key, 10):  # Very short cooldown for emergency alerts
+                if not self._suppress(key, STAMPEDE_COOLDOWN):
                     new_alerts.append(self._emit(
                         "STAMPEDE_DETECTED", zid, "P1",
-                        f"🚨 EMERGENCY: Panic/Stampede behavior detected in {m.label} (Velocity: {m.avg_speed:.2f} m/s)",
-                        "IMMEDIATE ACTION REQUIRED: Deploy medical response, open all emergency exits.",
+                        f"Stampede Possibility in {m.label}",
+                        (
+                            f"Abnormal crowd velocity ({m.avg_speed:.2f} m/s) detected in a dense zone "
+                            f"({m.occupancy_percent:.0f}% density). Possible panic. "
+                            f"Open all emergency exits and deploy medical response."
+                        ),
                     ))
 
-            # ── PREDICTIVE_WARNING (Refinement #10) ──────────────────────
-            if prediction_engine and prediction_engine.is_imminent_critical(zid, PREDICTIVE_WARNING_SECS):
-                pred = prediction_engine.get_prediction(zid)
-                if pred:
-                    key = f"PREDICTIVE:{zid}"
-                    if not self._suppress(key, 30):
-                        ttc = pred.predicted_time_to_critical
-                        ttc_str = f"{ttc:.0f}s" if ttc is not None else "soon"
+            # ── 3. CLUSTER_DETECTED ─────────────────────────────────────
+            # Detects high-density clusters within a zone even if the overall
+            # zone density isn't critical yet.
+            critical_clusters = [c for c in m.clusters if c.risk_level == "critical"]
+            if critical_clusters:
+                key = f"CLUSTER:{zid}"
+                if not self._suppress(key, 45): # 45s cooldown
+                    new_alerts.append(self._emit(
+                        "CLUSTER_DETECTED", zid, "P2",
+                        f"High-Density Cluster in {m.label}",
+                        f"Detected {len(critical_clusters)} localized high-density cluster(s). Monitor for local congestion.",
+                    ))
+
+        # ── 4. ZONE_IMBALANCE ──────────────────────────────────────────
+        # Detects if one zone has significantly more people than others.
+        if len(metrics) > 1:
+            total_people = sum(m.people_count for m in metrics)
+            avg_people = total_people / len(metrics)
+            
+            for m in metrics:
+                # If a zone has > 2x average and at least 20 people more than average
+                if m.people_count > (avg_people * 2.0) and m.people_count > (avg_people + 20):
+                    key = f"IMBALANCE:{m.zone_id}"
+                    if not self._suppress(key, 120): # 2 min cooldown
                         new_alerts.append(self._emit(
-                            "PREDICTIVE_WARNING", zid, "P1",
-                            f"⚠️ {pred.prediction_text}",
-                            f"Pre-emptively slow inflow to {m.label} — critical capacity predicted in {ttc_str}",
+                            "ZONE_IMBALANCE", m.zone_id, "P2",
+                            f"Crowd Imbalance: {m.label}",
+                            f"Zone has {m.people_count} people, significantly higher than average ({avg_people:.0f}). Redirect flow to underutilized zones.",
                         ))
 
         return new_alerts

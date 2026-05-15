@@ -198,7 +198,6 @@ function PolygonEditor({ videoUrl, onSave }) {
   const [zones, setZones] = useState([]);
   const [currentPoints, setCurrentPoints] = useState([]);
   const [zoneName, setZoneName] = useState('');
-  const [zoneCapacity, setZoneCapacity] = useState(50);
   const [colorIdx, setColorIdx] = useState(0);
   const [videoReady, setVideoReady] = useState(false);
   const [canvasSize, setCanvasSize] = useState({ w: 800, h: 450 });
@@ -336,12 +335,10 @@ function PolygonEditor({ videoUrl, onSave }) {
     const label = zoneName.trim() || `Zone ${zones.length + 1}`;
     const color = ZONE_COLORS[colorIdx % ZONE_COLORS.length];
     const id = `user_zone_${Date.now()}`;
-    const capacity = Math.max(1, parseInt(zoneCapacity, 10) || 50);
-    setZones(prev => [...prev, { id, label, points: currentPoints, color, capacity }]);
+    setZones(prev => [...prev, { id, label, points: currentPoints, color }]);
     setCurrentPoints([]);
     setColorIdx(i => (i + 1) % ZONE_COLORS.length);
     setZoneName('');
-    setZoneCapacity(50);
     setInstruction('Zone saved! Click to start drawing the next zone, or click "Finish" when done.');
   };
 
@@ -369,7 +366,7 @@ function PolygonEditor({ videoUrl, onSave }) {
         <p className="theme-text-muted text-sm">Draw polygons on the video to define zones. These will appear on the dashboard map.</p>
       </div>
 
-      {/* Zone name + capacity + color picker row */}
+      {/* Zone name + color picker row */}
       <div className="flex gap-3 items-center flex-wrap">
         <div className="flex-1 min-w-48">
           <select
@@ -389,17 +386,6 @@ function PolygonEditor({ videoUrl, onSave }) {
             className="flex-1 min-w-36 theme-input px-3 py-2 rounded-lg text-sm"
           />
         ) : null}
-        <div className="flex items-center gap-1.5">
-          <label className="theme-text-muted text-xs whitespace-nowrap">Max ppl</label>
-          <input
-            type="number"
-            min="1"
-            max="9999"
-            value={zoneCapacity}
-            onChange={e => setZoneCapacity(e.target.value)}
-            className="w-20 theme-input px-2 py-2 rounded-lg text-sm text-center font-mono"
-          />
-        </div>
         <div className="flex gap-1.5">
           {ZONE_COLORS.map((c, i) => (
             <button
@@ -482,7 +468,6 @@ function PolygonEditor({ videoUrl, onSave }) {
                    style={{ borderColor: z.color + '60', background: z.color + '15' }}>
                 <div className="w-3 h-3 rounded-full" style={{ background: z.color }}/>
                 <span className="theme-text-primary text-sm font-medium">{z.label}</span>
-                <span className="theme-text-muted text-xs font-mono">cap:{z.capacity}</span>
                 <button
                   onClick={() => removeZone(z.id)}
                   className="text-xs opacity-50 hover:opacity-100 ml-1"

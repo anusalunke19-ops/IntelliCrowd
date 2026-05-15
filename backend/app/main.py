@@ -72,6 +72,7 @@ detector = VideoDetector(
     source=_default_src,
     camera_id="cam_entrance_01",
     zone_polygons=_zone_polygons,       # ROI masking from zone config
+    zone_configs=zone_configs,
 )
 zone_engine = ZoneEngine(zone_configs)
 alert_engine = AlertEngine()
@@ -109,6 +110,7 @@ async def pipeline_loop():
             metrics = build_all_metrics(
                 zone_engine.get_all_states(),
                 prediction_engine=prediction_engine,
+                global_clusters=detector._latest_clusters,
             )
 
             # ── Process alerts with prediction awareness ─────────────────
@@ -262,7 +264,15 @@ async def get_cameras():
 
 @app.get("/api/config/zones")
 async def get_config_zones():
-    return [z.dict() for z in zone_engine.config]
+    result = []
+    for state in zone_engine.zones.values():
+        config_dict = state.config.model_dump()
+        poly = config_dict["polygon"]
+        # If it's in pixel space (any > 2.0), normalize to 1280x720
+        if any(p[0] > 2.0 or p[1] > 2.0 for p in poly):
+            config_dict["polygon"] = [[p[0] / 1280.0, p[1] / 720.0] for p in poly]
+        result.append(config_dict)
+    return result
 
 
 @app.post("/api/config/zones")

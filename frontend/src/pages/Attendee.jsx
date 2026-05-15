@@ -22,7 +22,7 @@ const MEDICAL_POSTS = [
 
 function ZoneTile({ zone, isSelected, onClick }) {
   if (!zone) return null;
-  const occ = Math.min(100, Math.round((zone.currentCount / zone.capacity) * 100));
+  const occ = Math.min(100, Math.round(zone.occupancy ?? 0));
   const isHigh = occ >= 85;
   const isMid  = occ >= 60;
   const barColor = isHigh ? 'bg-red-500' : isMid ? 'bg-amber-500' : 'bg-green-500';
@@ -66,7 +66,7 @@ function ZoneDetailPanel({ zone }) {
     </div>
   );
 
-  const occ = Math.min(100, Math.round((zone.currentCount / zone.capacity) * 100));
+  const occ = Math.min(100, Math.round(zone.occupancy ?? 0));
   const isHigh = occ >= 85;
   const isMid  = occ >= 60;
   const barColor = isHigh ? 'bg-red-500' : isMid ? 'bg-amber-500' : 'bg-green-500';
@@ -126,7 +126,7 @@ function ZoneDetailPanel({ zone }) {
   );
 }
 
-function SOSButton({ onSOS, zone, contact, incidents, activeIncidentId, setActiveIncidentId }) {
+function SOSButton({ onSOS, zone, incidents, activeIncidentId, setActiveIncidentId }) {
   const [confirm, setConfirm] = useState(false);
   const [sent, setSent] = useState(false);
 
@@ -134,6 +134,17 @@ function SOSButton({ onSOS, zone, contact, incidents, activeIncidentId, setActiv
   const oscillatorRef = useRef(null);
   const lfoRef = useRef(null);
   const vibrateIntervalRef = useRef(null);
+  const [location, setLocation] = useState(null);
+
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        (err) => console.warn('Geolocation error:', err),
+        { enableHighAccuracy: true }
+      );
+    }
+  }, []);
 
   const stopAlarm = () => {
     if (oscillatorRef.current) {
@@ -223,14 +234,6 @@ function SOSButton({ onSOS, zone, contact, incidents, activeIncidentId, setActiv
         navigator.vibrate([500, 200, 500, 200]);
       }, 1500);
     }
-
-    // Dial emergency number if contact is provided
-    if (contact) {
-      const numbers = contact.replace(/[^0-9+]/g, '');
-      if (numbers) {
-        window.location.href = `tel:${numbers}`;
-      }
-    }
   };
 
   if (sent) return (
@@ -239,15 +242,23 @@ function SOSButton({ onSOS, zone, contact, incidents, activeIncidentId, setActiv
       <div className="text-red-500 font-bold text-lg mb-4">SOS Sent! Security Notified.</div>
       
       {/* Mini map container */}
-      <div className="rounded-xl p-3 mb-4 h-32 flex flex-col items-center justify-center border theme-border" style={{ background: 'var(--surface-2)' }}>
-         <div className="text-2xl mb-1">📍</div>
-         <div className="theme-text-primary font-semibold text-sm">Location Shared:</div>
-         <div className="theme-text-muted text-xs">{zone?.label || 'Current Location'}</div>
-      </div>
-      
-      <div className="rounded-xl p-3 text-left border border-red-500/20 mb-4" style={{ background: 'var(--surface)' }}>
-        <div className="theme-text-muted text-xs mb-1">Emergency Contact Notified:</div>
-        <div className="font-bold theme-text-primary">{contact || 'None saved'}</div>
+      <div className="rounded-xl overflow-hidden mb-4 border theme-border relative" style={{ height: '200px', background: 'var(--surface-2)' }}>
+        {location ? (
+          <iframe 
+            width="100%" 
+            height="100%" 
+            style={{ border: 0 }} 
+            loading="lazy" 
+            allowFullScreen 
+            src={`https://maps.google.com/maps?q=${location.lat},${location.lng}&z=16&output=embed`}
+          ></iframe>
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center p-3 text-center">
+            <div className="text-2xl mb-1">📍</div>
+            <div className="theme-text-primary font-semibold text-sm">Location Shared:</div>
+            <div className="theme-text-muted text-xs">{zone?.label || 'Locating...'}</div>
+          </div>
+        )}
       </div>
 
       <button onClick={() => { stopAlarm(); setSent(false); setActiveIncidentId(null); }} className="w-full py-2 rounded-[20px] theme-text-primary font-semibold text-sm" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>Dismiss</button>
@@ -285,11 +296,6 @@ export default function Attendee() {
   const { zones, alerts, logAction, declareIncident, incidents } = useCrowdData();
   const { userZones } = useFootage();
   const [selectedIdx, setSelectedIdx] = useState(0);
-  
-  // Emergency Contact State
-  const [contact, setContact] = useState('');
-  const [isEditingContact, setIsEditingContact] = useState(false);
-  const [tempContact, setTempContact] = useState('');
 
   // Track active incident ID
   const [activeIncidentId, setActiveIncidentId] = useState(null);
@@ -307,6 +313,7 @@ export default function Attendee() {
           capacity: backendZone?.capacity ?? 100,
           movementVector: backendZone?.movementVector,
           riskScore: backendZone?.riskScore ?? 0,
+          occupancy: backendZone?.occupancy ?? 30,
         };
       })
     : zones.slice(0, 8);
@@ -327,6 +334,11 @@ export default function Attendee() {
     return a.zoneLabel || a.zone || a.zone_id || 'Unknown Zone';
   };
 
+  // Find safest zone for advisory
+  const safestZone = displayZones.length > 0
+    ? displayZones.reduce((prev, curr) => ((curr.occupancy ?? 0) < (prev.occupancy ?? 0) ? curr : prev))
+    : null;
+
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
@@ -345,12 +357,22 @@ export default function Attendee() {
 
         {/* Critical broadcast alerts */}
         {criticalAlerts.map(a => (
-          <div key={a.id} className="bg-red-500/10 border border-red-400/40 rounded-xl p-3 flex gap-3">
-            <span className="text-xl shrink-0">🔔</span>
-            <div>
-              <div className="text-red-400 font-semibold text-sm">Safety Alert — {resolveAlertZone(a)}</div>
-              <div className="text-red-400/80 text-xs mt-0.5">{a.message}</div>
+          <div key={a.id} className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex gap-3 flex-col sm:flex-row">
+            <div className="flex gap-3 flex-1">
+              <span className="text-xl shrink-0">🔔</span>
+              <div>
+                <div className="text-red-600 dark:text-red-400 font-semibold text-sm">Safety Alert — {resolveAlertZone(a)}</div>
+                <div className="text-red-600/80 dark:text-red-400/80 text-xs mt-0.5">{a.message}</div>
+              </div>
             </div>
+            {safestZone && safestZone.id !== a.zone_id && (
+              <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-2 text-green-700 dark:text-green-400 text-xs sm:max-w-xs shrink-0 flex items-center gap-2">
+                <span className="text-lg">🏃</span>
+                <span>
+                  <strong>Advisory:</strong> Consider moving to <strong>{safestZone.label}</strong> which currently has the lowest density ({Math.round(safestZone.occupancy ?? 0)}%).
+                </span>
+              </div>
+            )}
           </div>
         ))}
 
@@ -375,47 +397,9 @@ export default function Attendee() {
         {/* Selected zone detail */}
         <ZoneDetailPanel zone={selectedZone} />
 
-        {/* Emergency Contact */}
-        <div className="card rounded-2xl p-5 mb-4 border border-blue-400/30 bg-blue-500/5">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="theme-text-primary font-semibold text-sm">📞 Emergency Contact</h2>
-            {!isEditingContact && (
-              <button 
-                onClick={() => { setTempContact(contact); setIsEditingContact(true); }}
-                className="text-xs text-blue-500 hover:text-blue-400 font-semibold"
-              >
-                {contact ? 'Edit' : '+ Add Contact'}
-              </button>
-            )}
-          </div>
-          
-          {isEditingContact ? (
-            <div className="flex gap-2">
-              <input 
-                type="text" 
-                placeholder="e.g. John Doe (555-0198)" 
-                value={tempContact} 
-                onChange={e => setTempContact(e.target.value)}
-                className="flex-1 bg-transparent border theme-border rounded px-3 py-1.5 text-sm theme-text-primary focus:outline-none focus:border-blue-500"
-              />
-              <button 
-                onClick={() => { setContact(tempContact); setIsEditingContact(false); }}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-semibold"
-              >
-                Save
-              </button>
-            </div>
-          ) : (
-            <div className="theme-text-muted text-sm">
-              {contact || 'No emergency contact saved. Add one for SOS notifications.'}
-            </div>
-          )}
-        </div>
-
         {/* SOS Button */}
         <SOSButton 
           zone={selectedZone}
-          contact={contact}
           incidents={incidents}
           activeIncidentId={activeIncidentId}
           setActiveIncidentId={setActiveIncidentId}
@@ -427,7 +411,7 @@ export default function Attendee() {
                 severity: 'P1',
                 assigned_responder: 'Unassigned',
                 affected_zones: [selectedZone?.id || 'Unknown'],
-                notes: `SOS triggered by Attendee from ${selectedZone?.label || 'Unknown'} area. Contact: ${contact || 'None'}`
+                notes: `SOS triggered by Attendee from ${selectedZone?.label || 'Unknown'} area.`
               });
               return inc?.incident_id || inc?.id;
             }

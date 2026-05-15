@@ -27,7 +27,7 @@ function zoneColor(riskScore, occupancyPct) {
   if (occupancyPct >= 95) return { fill: '#E24B4A', stroke: '#FF6B6A', pulse: true };
   if (occupancyPct >= 85 || riskScore >= 70) return { fill: '#E24B4A', stroke: '#E24B4A', pulse: false };
   if (occupancyPct >= 60 || riskScore >= 40) return { fill: '#EF9F27', stroke: '#EF9F27', pulse: false };
-  return { fill: '#1D9E75', stroke: '#1D9E75', pulse: false };
+  return { fill: '#38BDF8', stroke: '#38BDF8', pulse: false };
 }
 
 // ─── SVG Tooltip ─────────────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ function SVGMap({ zonesData = [], incidents = [] }) {
         ))}
 
         <g transform="translate(10, 460)">
-          {[['#1D9E75', 'Safe <60%'], ['#EF9F27', 'Warning 60-85%'], ['#E24B4A', 'Critical >85%']].map(([c, l], i) => (
+          {[['#38BDF8', 'Safe <60%'], ['#EF9F27', 'Warning 60-85%'], ['#E24B4A', 'Critical >85%']].map(([c, l], i) => (
             <g key={i} transform={`translate(${i * 130}, 0)`}>
               <rect width="10" height="10" fill={c} fillOpacity="0.6" stroke={c} strokeWidth="1" rx="2" />
               <text x="14" y="9" fill="#aaa" fontSize="9" fontFamily="Inter,sans-serif">{l}</text>

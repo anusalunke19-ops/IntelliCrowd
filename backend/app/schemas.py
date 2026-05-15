@@ -130,6 +130,7 @@ AlertType = Literal[
     "CLUSTER_DETECTED",
     "PREDICTIVE_WARNING",
     "STAMPEDE_DETECTED",
+    "ZONE_IMBALANCE",
 ]
 
 AlertSeverity = Literal["P1", "P2", "P3"]

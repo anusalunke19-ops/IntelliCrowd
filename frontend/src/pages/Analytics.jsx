@@ -16,7 +16,7 @@ import ZoneDensityChart from '../components/ZoneDensityChart.jsx';
 const TIMELINE_LABELS = ['18:00','18:30','19:00','19:30','20:00','20:30','21:00','21:30','22:00'];
 
 function buildChartData(zones) {
-  // Use real history if available
+  // Use real density history from backend; fall back to current density %
   return TIMELINE_LABELS.map((label, i) => {
     const row = { time: label };
     const topZones = zones.slice(0, 6);
@@ -24,7 +24,8 @@ function buildChartData(zones) {
       const history = z.densityHistory || [];
       const histIdx = Math.floor(history.length * (i / TIMELINE_LABELS.length));
       const histPoint = history[histIdx];
-      const occ = histPoint ? Math.round(histPoint.occupancyPercent) : Math.round((z.currentCount / z.capacity) * 100);
+      // Use density-based occupancy from backend, not count/capacity
+      const occ = histPoint ? Math.round(histPoint.occupancyPercent) : Math.round(z.occupancy ?? 0);
       row[z.label || z.id] = occ;
     });
     return row;
@@ -88,7 +89,7 @@ function exportReport({ zones, alerts, incidents, footage }) {
     '-'.repeat(40),
     `Total Zones Monitored:   ${zones.length}`,
     `Total People (current):  ${totalPeople}`,
-    `Peak Zone:               ${peakZone?.label} (${Math.round((peakZone?.currentCount / peakZone?.capacity) * 100)}% occ)`,
+    `Peak Zone:               ${peakZone?.label} (${Math.round(peakZone?.occupancy ?? 0)}% density)`,
     `P1 Alerts Triggered:     ${p1}`,
     `P2 Alerts Triggered:     ${p2}`,
     `Total Incidents Declared: ${incidents.length}`,
@@ -96,9 +97,9 @@ function exportReport({ zones, alerts, incidents, footage }) {
     'ZONE SUMMARY',
     '-'.repeat(40),
     ...zones.map(z => {
-      const occ = Math.round((z.currentCount / z.capacity) * 100);
-      const risk = occ >= 85 ? 'CRITICAL' : occ >= 60 ? 'WARNING' : 'SAFE';
-      return `  ${(z.label || z.id).padEnd(20)} Count: ${String(z.currentCount).padStart(4)}  Cap: ${String(z.capacity).padStart(4)}  Occ: ${String(occ).padStart(3)}%  Status: ${risk}`;
+      const occ  = Math.round(z.occupancy ?? 0);
+      const risk = z.risk_level ? z.risk_level.toUpperCase() : (occ >= 85 ? 'CRITICAL' : occ >= 60 ? 'WARNING' : 'SAFE');
+      return `  ${(z.label || z.id).padEnd(20)} Detected: ${String(z.currentCount).padStart(4)}  Density: ${String(occ).padStart(3)}%  Status: ${risk}`;
     }),
     '',
     'ALERTS LOG',
@@ -170,9 +171,9 @@ export default function Analytics() {
 
   const p1Count = alerts.filter(a => a.severity === 'P1').length;
   const p2Count = alerts.filter(a => a.severity === 'P2').length;
-  const peakZone = [...zones].sort((a, b) => b.currentCount / b.capacity - a.currentCount / a.capacity)[0];
-  const peakOcc = peakZone ? Math.round((peakZone.currentCount / peakZone.capacity) * 100) : 0;
-  const fastestResponse = incidents.length ? '4m 12s' : '—';
+  // Peak zone by density score, not by count/capacity ratio
+  const peakZone = [...zones].sort((a, b) => (b.occupancy ?? 0) - (a.occupancy ?? 0))[0];
+  const peakOcc  = peakZone ? Math.round(peakZone.occupancy ?? 0) : 0;
   const top6Zones = zones.slice(0, 6);
 
   return (
@@ -180,8 +181,8 @@ export default function Analytics() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="theme-text-primary text-2xl font-bold">Post-Event Analytics</h1>
-          <p className="theme-text-muted text-sm mt-0.5">Sunburn Festival 2026 · Real-time session data</p>
+          <h1 className="theme-text-primary text-2xl font-bold">{footage?.name || 'Live Event Analytics'}</h1>
+          <p className="theme-text-muted text-sm mt-0.5">Post-Event Analytics · Real-time session data</p>
         </div>
         <button
           onClick={() => exportReport({ zones, alerts, incidents, footage })}
@@ -203,8 +204,6 @@ export default function Analytics() {
           subtext="Declared by operators" color={incidents.length > 0 ? 'text-cs-red' : 'text-cs-green'} />
         <SummaryCard icon="✅" label="Resolved" value={incidents.filter(i => i.status === 'Resolved').length}
           subtext="Resolved incidents" color="text-cs-green" />
-        <SummaryCard icon="⚡" label="Fastest Response" value={fastestResponse}
-          subtext="Incident → resolve" color="text-cs-green" />
       </div>
 
       {/* Bar chart — zone occupancy over event */}
@@ -250,45 +249,6 @@ export default function Analytics() {
             />
           </LineChart>
         </ResponsiveContainer>
-      </div>
-
-      {/* Alert breakdown table */}
-      <div className="card p-5">
-        <h2 className="theme-text-primary font-semibold mb-4">Alert Breakdown</h2>
-        {alerts.length === 0 ? (
-          <div className="theme-text-muted text-sm">No alerts recorded in this session.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="theme-text-muted border-b theme-border">
-                  <th className="text-left py-2 font-mono">ID</th>
-                  <th className="text-left py-2 font-mono">Type</th>
-                  <th className="text-left py-2 font-mono">Zone</th>
-                  <th className="text-left py-2 font-mono">Severity</th>
-                  <th className="text-left py-2 font-mono">Time</th>
-                  <th className="text-left py-2 font-mono">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {alerts.slice(0, 20).map(a => (
-                  <tr key={a.id} className="border-b theme-border hover:opacity-80 transition-opacity">
-                    <td className="py-2 font-mono theme-text-muted">{a.id}</td>
-                    <td className="py-2 theme-text-primary">{a.type}</td>
-                    <td className="py-2 text-cs-amber">{a.zoneLabel || a.zone}</td>
-                    <td className="py-2">
-                      <span className={`chip-${a.severity.toLowerCase()}`}>{a.severity}</span>
-                    </td>
-                    <td className="py-2 font-mono theme-text-muted">
-                      {new Date(a.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </td>
-                    <td className="py-2 capitalize theme-text-muted">{a.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
 
       {/* Incident breakdown table */}
@@ -354,7 +314,10 @@ export default function Analytics() {
           {zones.map(zone => (
             <div key={zone.id} className="border-t theme-border pt-4">
               <h3 className="font-semibold text-sm theme-text-primary mb-2">
-                {zone.label || zone.id} <span className="text-gray-500 font-mono text-xs font-normal ml-2">Capacity: {zone.capacity}</span>
+                {zone.label || zone.id}
+                <span className="text-gray-500 font-mono text-xs font-normal ml-2">
+                  {Math.round(zone.occupancy ?? 0)}% density
+                </span>
               </h3>
               <ZoneDensityChart zone={zone} />
             </div>

@@ -10,7 +10,7 @@ Refinements:
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
-from app.schemas import ZoneMetrics
+from app.schemas import ZoneMetrics, ClusterInfo
 from app.zone_engine import ZoneState, ZoneConfig
 from app.prediction_engine import PredictionEngine
 
@@ -58,61 +58,74 @@ def compute_risk_score(state: ZoneState) -> float:
     return round(min(100.0, raw * 100), 1)
 
 
-def _risk_level(occ: float, flow: str, trend: str) -> str:
-    if occ >= 85 or (flow == "opposing") or (occ < 60 and trend == "rising" and occ > 50):
+def _risk_level(occ: float, flow: str, trend: str, speed: float) -> str:
+    # Critical: physical density danger zone OR running-in-dense-crowd panic
+    if occ >= 85:
         return "critical"
-    if occ >= 60 or trend == "rising":
+    if occ >= 60 and speed >= 2.5:
+        return "critical"   # dense + fast = stampede risk
+    if occ >= 60:
         return "warning"
     return "safe"
 
 
 def _reasons(state: ZoneState) -> List[str]:
     r: List[str] = []
-    if state.occupancy_percent >= 95:
-        r.append("near-capacity — critical density")
-    elif state.occupancy_percent >= 85:
-        r.append("high occupancy")
-    if state.flow_direction == "opposing":
-        r.append("opposing crowd flows detected")
-    if state.avg_speed < 0.05 and state.people_count > 5:
-        r.append("crowd movement stalled")
-    if state.trend == "rising":
-        r.append("headcount rising rapidly")
-    if state.dwell_time > 150:
-        r.append("extended dwell time")
-    # Entry/exit context
-    if state.net_flow > 5:
-        r.append(f"net inflow of {state.net_flow} — zone filling")
-    elif state.net_flow < -5:
-        r.append(f"net outflow of {abs(state.net_flow)} — zone clearing")
+    if state.occupancy_percent >= 85:
+        r.append(f"Critical density ({round(state.occupancy_percent)}%) — stampede risk")
+    elif state.occupancy_percent >= 60 and state.avg_speed >= 2.5:
+        r.append(f"Dense crowd ({round(state.occupancy_percent)}%) moving at panic speed ({state.avg_speed:.2f} m/s)")
+    elif state.occupancy_percent >= 60:
+        r.append(f"Elevated density ({round(state.occupancy_percent)}%)")
     return r or ["nominal"]
 
 
 def _recommended_action(state: ZoneState, risk: str) -> str:
     if risk == "critical":
-        if state.flow_direction == "opposing":
-            return "Separate flows immediately — assign stewards at zone entry/exit"
-        if state.occupancy_percent >= 95:
-            return "Close inflow gate immediately and activate overflow route"
-        return "Deploy emergency response team — assess evacuation need"
+        if state.occupancy_percent >= 85:
+            return "Reduce inflow immediately — activate crowd dispersal protocol"
+        # dense + fast
+        return "Open emergency exits — deploy medical and security response now"
     if risk == "warning":
-        if state.trend == "rising":
-            return f"Slow inflow to {state.config.label} — redirect to nearest alternate zone"
         return f"Monitor {state.config.label} closely — pre-position stewards"
     return "No action required — continue monitoring"
+
+
+def point_in_polygon(x: float, y: float, polygon: List[List[float]]) -> bool:
+    """Ray-casting algorithm for point-in-polygon test."""
+    n = len(polygon)
+    inside = False
+    px, py = x, y
+    j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+        if ((yi > py) != (yj > py)) and (px < (xj - xi) * (py - yi) / (yj - yi + 1e-9) + xi):
+            inside = not inside
+        j = i
+    return inside
 
 
 def build_zone_metrics(
     state: ZoneState,
     timestamp: datetime | None = None,
     prediction_engine: Optional[PredictionEngine] = None,
+    global_clusters: List[ClusterInfo] = None,
 ) -> ZoneMetrics:
     ts = timestamp or datetime.now(timezone.utc)
     occ = round(state.occupancy_percent, 1)
     flow = state.flow_direction
     trend = state.trend
-    risk_level = _risk_level(occ, flow, trend)
+    risk_level = _risk_level(occ, flow, trend, state.avg_speed)
     risk_score = compute_risk_score(state)
+
+    # ── Filter clusters for this zone ─────────────────────────────────────
+    zone_clusters = []
+    if global_clusters:
+        for c in global_clusters:
+            # centroid is in normalized 0-1 range
+            if point_in_polygon(c.centroid.x, c.centroid.y, state.config.polygon):
+                zone_clusters.append(c)
 
     # ── Predictions (Refinement #10) ─────────────────────────────────────
     prediction_text = None
@@ -161,6 +174,8 @@ def build_zone_metrics(
         prediction=prediction_text,
         predicted_time_to_critical=predicted_ttc,
         rate_of_change=rate_of_change,
+        # ── Clusters ──
+        clusters=zone_clusters,
     )
 
 
@@ -168,6 +183,7 @@ def build_all_metrics(
     zone_states: Dict[str, ZoneState],
     timestamp: datetime | None = None,
     prediction_engine: Optional[PredictionEngine] = None,
+    global_clusters: List[ClusterInfo] = None,
 ) -> List[ZoneMetrics]:
     ts = timestamp or datetime.now(timezone.utc)
-    return [build_zone_metrics(s, ts, prediction_engine) for s in zone_states.values()]
+    return [build_zone_metrics(s, ts, prediction_engine, global_clusters) for s in zone_states.values()]

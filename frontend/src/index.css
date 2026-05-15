@@ -14,8 +14,8 @@ html.dark {
   --border:      #2A2A3C;
   --border-2:    #363650;
   --text-primary: #F0F0F8;
-  --text-muted:   #6B7280;
-  --text-dim:     #4B5563;
+  --text-muted:   #9CA3AF;
+  --text-dim:     #6B7280;
 
   --emboss-inset: inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.28);
   --emboss-inset-sm: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 3px rgba(0,0,0,0.2);

@@ -12,7 +12,6 @@ import AlertFeed from '../components/AlertFeed.jsx';
 import RiskPanel from '../components/RiskPanel.jsx';
 import ZoneList from '../components/ZoneList.jsx';
 import IncidentPanel from '../components/IncidentPanel.jsx';
-
 // ─── Live Clock ────────────────────────────────────────────────────────────
 
 function LiveClock() {
@@ -98,6 +97,18 @@ export default function Dashboard() {
 
   const [rightTab, setRightTab] = useState('Alerts');
   const openAlerts = alerts.filter(a => a.status === 'open');
+  const p1Alerts = alerts.filter(a => a.severity === 'P1');
+  
+  const [flashCard, setFlashCard] = useState(false);
+  const prevP1Count = React.useRef(p1Alerts.length);
+
+  useEffect(() => {
+    if (p1Alerts.length > prevP1Count.current) {
+      setFlashCard(true);
+      setTimeout(() => setFlashCard(false), 800);
+    }
+    prevP1Count.current = p1Alerts.length;
+  }, [p1Alerts.length]);
 
   const eventName  = footage?.name  || 'No Event Loaded';
   const venueLine  = footage
@@ -106,7 +117,6 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-96px)] overflow-hidden gap-3" style={{ background: 'transparent' }}>
-
       {/* Top bar */}
       <header className="flex items-center justify-between px-6 py-3 shrink-0 card" style={{ borderRadius: '24px' }}>
         <div>
@@ -146,13 +156,30 @@ export default function Dashboard() {
           <div className="px-4 py-3 border-b theme-border shrink-0">
             <div className="theme-text-dim text-[10px] font-mono uppercase tracking-wider">Zones</div>
           </div>
-          <div className="flex-1 overflow-hidden p-3">
+          <div className="flex-1 overflow-hidden p-3 flex flex-col">
             {hasFootage ? <ZoneList zones={zones} /> : (
               <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
                 <div className="theme-text-dim text-[10px] font-mono">Upload footage first</div>
               </div>
             )}
           </div>
+
+          {/* Critical Alert Popup */}
+          {openAlerts.some(a => a.severity === 'P1') && (
+            <div className={`m-3 mt-0 p-3 rounded-xl border flex flex-col gap-1 transition-colors duration-200 ${
+              flashCard
+                ? 'bg-red-600 border-red-500 shadow-[0_0_25px_rgba(220,38,38,0.8)] scale-105'
+                : 'bg-cs-red/10 border-cs-red/50 shadow-[0_0_15px_rgba(226,75,74,0.3)] animate-pulse'
+            }`}>
+              <div className={`flex items-center gap-2 font-bold text-xs ${flashCard ? 'text-white' : 'text-cs-red'}`}>
+                <span>⚠️</span>
+                <span>Critical Alert</span>
+              </div>
+              <div className={`text-[10px] leading-tight ${flashCard ? 'text-white font-semibold' : 'text-cs-red/90'}`}>
+                {openAlerts.filter(a => a.severity === 'P1')[0]?.message || 'Immediate attention required in one or more zones.'}
+              </div>
+            </div>
+          )}
         </aside>
 
         {/* Centre — Map / No footage CTA */}

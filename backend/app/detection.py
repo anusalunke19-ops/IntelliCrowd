@@ -20,7 +20,7 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 import numpy as np
-from app.schemas import BoundingBox, DetectionFrame, ClusterInfo
+from app.schemas import BoundingBox, DetectionFrame, ClusterInfo, ZoneConfig
 from app.csrnet_engine import CSRNetEngine
 from app.cluster_engine import ClusterEngine
 
@@ -116,39 +116,39 @@ class SimulatedPerson:
 class SimulatedCrowdEngine:
     """
     Generates realistic-looking crowd simulation data.
-    Each zone has a pool of persons that move around within that zone's bounding box.
+    If zones are provided, persons move within those zone boundaries.
+    If no zones are provided, it defaults to full-frame random movement.
     """
 
-    ZONE_BOUNDS: dict[str, Tuple[float, float, float, float]] = {
-        "gate_a":       (50,   30,  340,  200),
-        "gate_b":       (940,  30, 1230,  200),
-        "corridor_1":   (340,  80,  940,  200),
-        "exit_a":       (50,  520,  340,  690),
-        "stage_front":  (280, 250,  1000, 490),
-        "queue_lane":   (1000, 200, 1230, 520),
-    }
-
-    INITIAL_COUNTS: dict[str, int] = {
-        "gate_a": 18,
-        "gate_b": 12,
-        "corridor_1": 25,
-        "exit_a": 8,
-        "stage_front": 60,
-        "queue_lane": 22,
-    }
-
-    def __init__(self):
+    def __init__(self, zone_configs: Optional[List[ZoneConfig]] = None):
         self._persons: dict[str, List[SimulatedPerson]] = {}
         self._next_id = 1
         self._frame = 0
         self._start_time = time.time()
+        self._zone_bounds: dict[str, Tuple[float, float, float, float]] = {}
 
-        for zone_id, bounds in self.ZONE_BOUNDS.items():
-            count = self.INITIAL_COUNTS.get(zone_id, 10)
-            self._persons[zone_id] = [
-                SimulatedPerson(self._next_id + i, bounds) for i in range(count)
+        if zone_configs:
+            for z in zone_configs:
+                # Convert polygon to a bounding box for simple simulation movement
+                poly = z.polygon
+                xs = [p[0] for p in poly]
+                ys = [p[1] for p in poly]
+                bounds = (min(xs), min(ys), max(xs), max(ys))
+                self._zone_bounds[z.zone_id] = bounds
+                
+                # Use capacity or default for simulated headcount
+                count = max(5, int(z.capacity * 0.4))
+                self._persons[z.zone_id] = [
+                    SimulatedPerson(self._next_id + i, bounds) for i in range(count)
+                ]
+                self._next_id += count
+        else:
+            # Fallback full-frame simulation
+            full_bounds = (50, 50, FRAME_W - 50, FRAME_H - 50)
+            self._persons["default"] = [
+                SimulatedPerson(self._next_id + i, full_bounds) for i in range(50)
             ]
-            self._next_id += count
+            self._next_id += 50
 
     def _elapsed(self) -> float:
         return time.time() - self._start_time
@@ -156,28 +156,28 @@ class SimulatedCrowdEngine:
     def _inject_events(self):
         elapsed = self._elapsed() % 60  # Loop simulation events every 60 seconds
         
-        # Restore normal speed if not in stampede window
-        if not (15 <= elapsed < 30):
-            for p in self._persons["stage_front"]:
-                if abs(p.vx) > 2.5:
-                    p.vx = random.uniform(-1.5, 1.5)
-                    p.vy = random.uniform(-1.5, 1.5)
-        
-        if 15 <= elapsed < 30:
-            # STAMPEDE on stage_front (High velocity)
-            for p in self._persons["stage_front"]:
-                # Force high speed
-                if abs(p.vx) < 2.5:
-                    p.vx = random.uniform(2.5, 4.5) * (1 if p.vx > 0 else -1)
-                    p.vy = random.uniform(2.5, 4.5) * (1 if p.vy > 0 else -1)
-
-        if 35 <= elapsed < 45:
-            # DENSITY_CRITICAL / SURGE on gate_a
-            bounds = self.ZONE_BOUNDS["gate_a"]
-            target = int(self.INITIAL_COUNTS["gate_a"] * 1.5)
-            while len(self._persons["gate_a"]) < target:
-                self._persons["gate_a"].append(SimulatedPerson(self._next_id, bounds))
-                self._next_id += 1
+        # Generic stampede/surge logic for whatever zones are active
+        for zone_id, persons in self._persons.items():
+            # Restore normal speed
+            if not (15 <= elapsed < 30):
+                for p in persons:
+                    if abs(p.vx) > 2.5:
+                        p.vx = random.uniform(-1.5, 1.5)
+                        p.vy = random.uniform(-1.5, 1.5)
+            
+            # STAMPEDE (High velocity)
+            if 15 <= elapsed < 30 and zone_id != "default":
+                for p in persons:
+                    if abs(p.vx) < 2.5:
+                        p.vx = random.uniform(2.5, 4.5) * (1 if p.vx > 0 else -1)
+                        p.vy = random.uniform(2.5, 4.5) * (1 if p.vy > 0 else -1)
+            
+            # Dynamic surge (Surprise influx)
+            if 35 <= elapsed < 45 and zone_id in self._zone_bounds:
+                bounds = self._zone_bounds[zone_id]
+                if len(persons) < 100: # caps simulated surge
+                    persons.append(SimulatedPerson(self._next_id, bounds))
+                    self._next_id += 1
 
     def next_frame(self, camera_id: str = "cam_sim_01") -> DetectionFrame:
         self._inject_events()
@@ -329,10 +329,11 @@ class VideoDetector:
         fps: int = 5,
         camera_id: str = "cam_01",
         zone_polygons: Optional[List[List[List[float]]]] = None,
+        zone_configs: Optional[List[ZoneConfig]] = None,
     ):
         self.camera_id = camera_id
         self.fps = fps
-        self._sim = SimulatedCrowdEngine()
+        self._sim = SimulatedCrowdEngine(zone_configs)
         self._real = False
         self._cap = None
         self._model = None
@@ -562,22 +563,34 @@ class VideoDetector:
 
         # Use real detections for heatmap simulation if available
         if self._latest_frame and self._latest_frame.boxes:
+            heatmap = np.zeros((FRAME_H, FRAME_W), dtype=np.float32)
             for box in self._latest_frame.boxes:
                 cx = int((box.x1 + box.x2) / 2 * FRAME_W)
                 cy = int((box.y1 + box.y2) / 2 * FRAME_H)
                 if 0 <= cx < FRAME_W and 0 <= cy < FRAME_H:
-                    cv2.circle(frame, (cx, cy), 30, (0, 0, 255), -1)
+                    cv2.circle(heatmap, (cx, cy), 20, 1.0, -1)
+                    
+            heatmap = cv2.GaussianBlur(heatmap, (81, 81), 0)
+            max_val = np.max(heatmap)
+            if max_val > 0:
+                heatmap = np.clip(heatmap * 255 / max_val, 0, 255).astype(np.uint8)
+            else:
+                heatmap = heatmap.astype(np.uint8)
+                
+            colored = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+            
+            # Map low values to a light blue explicitly, high values to red
+            mask = heatmap > 5
+            frame[mask] = colored[mask]
         else:
             # Fallback to sim persons only if no real detections
             for zone_id, persons in self._sim._persons.items():
                 for p in persons:
                     x, y = int(p.x), int(p.y)
                     if 0 <= x < FRAME_W and 0 <= y < FRAME_H:
-                        cv2.circle(frame, (x, y), 20, (0, 0, 200), -1)
-                        cv2.circle(frame, (x, y), 10, (0, 100, 255), -1)
-
-        # Blur it
-        frame = cv2.GaussianBlur(frame, (51, 51), 0)
+                        cv2.circle(frame, (x, y), 30, (235, 206, 135), -1) # Light blue in BGR
+                        cv2.circle(frame, (x, y), 15, (0, 0, 255), -1)     # Red
+            frame = cv2.GaussianBlur(frame, (51, 51), 0)
 
         _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         return buf.tobytes()
